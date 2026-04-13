@@ -1,5 +1,22 @@
 const documentChunkClass = "DocumentChunk";
 
+/** UUID-shaped string safe to inline in GraphQL (hex + hyphens only). */
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function assertFilterUserId(value: string): string {
+  if (!uuidPattern.test(value)) {
+    throw new Error("Invalid user id for Weaviate filter");
+  }
+  return value;
+}
+
+function clampGetLimit(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 8;
+  }
+  return Math.min(100, Math.max(1, Math.floor(value)));
+}
+
 export type WeaviateStoreConfig = {
   baseUrl: string;
 };
@@ -125,17 +142,22 @@ export function createWeaviateStore(config: WeaviateStoreConfig) {
     userId: string;
     limit: number;
   }): Promise<Array<{ text: string; doc_id: string; chunk_index: number; distance: number }>> {
+    const safeUserId = assertFilterUserId(params.userId);
+    const safeLimit = clampGetLimit(params.limit);
+
+    // Weaviate 1.27+ GraphQL: `where.valueText` is typed per-class; String! variables are rejected.
+    // Inline validated UUID + limit; keep only the embedding vector as a variable.
     const query = `
-      query ($vector: [Float]!, $userId: String!, $limit: Int!) {
+      query ($vector: [Float]!) {
         Get {
           ${documentChunkClass}(
             nearVector: { vector: $vector }
             where: {
               path: ["user_id"]
               operator: Equal
-              valueText: $userId
+              valueText: "${safeUserId}"
             }
-            limit: $limit
+            limit: ${safeLimit}
           ) {
             text
             doc_id
@@ -155,8 +177,6 @@ export function createWeaviateStore(config: WeaviateStoreConfig) {
         query,
         variables: {
           vector: params.vector,
-          userId: params.userId,
-          limit: params.limit,
         },
       }),
     })) as {
