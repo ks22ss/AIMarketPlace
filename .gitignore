@@ -1,2 +1,12 @@
-docs
-.cursor
+# docs/ and .cursor/ are tracked on purpose (product spec + shared Cursor agent skills).
+
+node_modules
+dist
+.env
+.env.local
+*.log
+.DS_Store
+coverage
+
+.idea
+.vscode
