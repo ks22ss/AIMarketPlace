@@ -2,7 +2,7 @@ import "./env.js";
 import cors from "cors";
 import express from "express";
 
-import { createAuthRouter } from "./auth/routes.js";
+import { createAuthRouter } from "./features/auth/auth.routes.js";
 import { runMigrations } from "./db/migrate.js";
 import { pool } from "./db/pool.js";
 

@@ -1,5 +1,7 @@
 import jwt from "jsonwebtoken";
 
+const algorithm = "HS256" as const;
+
 function getJwtSecret(): string {
   const value = process.env.JWT_SECRET;
   if (!value) {
@@ -27,6 +29,7 @@ export function signAccessToken(payload: AccessTokenPayload): string {
       expiresIn: "7d",
       issuer,
       audience,
+      algorithm,
     },
   );
 }
@@ -35,6 +38,7 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
   const decoded = jwt.verify(token, secret, {
     issuer,
     audience,
+    algorithms: [algorithm],
   }) as jwt.JwtPayload & { email?: string };
 
   if (!decoded.sub || typeof decoded.email !== "string") {

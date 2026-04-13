@@ -76,6 +76,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch {
         if (!cancelled) {
           setUser(null);
+          setAccessTokenState(null);
+          localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
         }
       } finally {
         if (!cancelled) {

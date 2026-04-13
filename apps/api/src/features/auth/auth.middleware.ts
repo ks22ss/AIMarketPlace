@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 
-import { verifyAccessToken } from "./jwt.js";
+import { verifyAccessToken } from "./auth.jwt.js";
 
 export function requireAuth(
   request: Request,
