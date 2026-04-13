@@ -4,7 +4,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 
 import { chunkText } from "./chunking.js";
 import type { EmbeddingClient } from "./embeddings.js";
-import { extractTextFromBuffer } from "./extract-text.js";
+import { extractTextFromBuffer, resolveIngestContentType } from "./extract-text.js";
 import type { S3Storage } from "./s3.storage.js";
 import type { WeaviateStore } from "./weaviate.store.js";
 
@@ -110,11 +110,16 @@ export function createDocumentPipeline(deps: DocumentPipelineDeps) {
     }
 
     const metadata = readMetadata(document.metadata);
-    const contentType =
+    const storedContentType =
       typeof metadata.contentType === "string" ? metadata.contentType : "application/octet-stream";
+    const fileName = typeof metadata.fileName === "string" ? metadata.fileName : "";
 
-    const { buffer, contentType: detectedType } = await deps.s3.getObjectBuffer(document.s3Url);
-    const resolvedType = detectedType || contentType;
+    const { buffer, contentType: s3ContentType } = await deps.s3.getObjectBuffer(document.s3Url);
+    const resolvedType = resolveIngestContentType({
+      s3ContentType,
+      storedContentType,
+      fileName,
+    });
 
     const text = await extractTextFromBuffer(buffer, resolvedType);
     const chunks = chunkText(text);
