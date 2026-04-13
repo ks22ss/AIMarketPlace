@@ -8,6 +8,7 @@ import { createChatRouter } from "./features/chat/chat.routes.js";
 import { createConfigRouter } from "./features/config/config.routes.js";
 import { createDocsRouter } from "./features/docs/docs.routes.js";
 import { createSkillsRouter } from "./features/skills/skills.routes.js";
+import { createToolsRouter } from "./features/tools/tools.routes.js";
 
 const port = Number(process.env.PORT) || 3001;
 
@@ -37,6 +38,7 @@ app.get("/api/health", (_request, response) => {
 app.use("/api/auth", createAuthRouter(prisma));
 app.use("/api/chat", createChatRouter());
 app.use("/api/skills", createSkillsRouter());
+app.use("/api/tools", createToolsRouter());
 app.use("/api/docs", createDocsRouter());
 app.use("/api/config", createConfigRouter());
 

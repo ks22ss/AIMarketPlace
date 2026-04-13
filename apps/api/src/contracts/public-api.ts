@@ -8,6 +8,11 @@ export type AuthTokenBundle = {
   user: PublicUser;
 };
 
+/** GET /api/auth/me */
+export type MeResponse = {
+  user: PublicUser;
+};
+
 /** POST /api/chat */
 export const chatPostBodySchema = z.object({
   message: z.string().min(1).max(16_000),
@@ -22,7 +27,7 @@ export type ChatPostResponse = {
 
 /** GET /api/skills */
 export type SkillSummaryDto = {
-  skillId: string;
+  skill_id: string;
   name: string;
   description: string | null;
 };
@@ -40,7 +45,49 @@ export type SkillInstallBody = z.infer<typeof skillInstallBodySchema>;
 
 export type SkillInstallResponse = {
   installed: true;
-  skillId: string;
+  skill_id: string;
+};
+
+/** POST /api/skills/create */
+export const skillCreateBodySchema = z.object({
+  name: z.string().min(1).max(200),
+  description: z.string().max(8000).optional().nullable(),
+  content: z.record(z.string(), z.unknown()).optional(),
+});
+
+export type SkillCreateBody = z.infer<typeof skillCreateBodySchema>;
+
+export type SkillCreateResponse = {
+  skill_id: string;
+  name: string;
+  version: number;
+};
+
+/** GET /api/tools */
+export type ToolSummaryDto = {
+  tool_id: string;
+  name: string;
+  type: string;
+};
+
+export type ToolsListResponse = {
+  tools: ToolSummaryDto[];
+};
+
+/** POST /api/tools/register */
+export const toolRegisterBodySchema = z.object({
+  name: z.string().min(1).max(200),
+  type: z.string().min(1).max(128),
+  config: z.record(z.string(), z.unknown()).optional(),
+  allow_role: z.array(z.string()).optional(),
+});
+
+export type ToolRegisterBody = z.infer<typeof toolRegisterBodySchema>;
+
+export type ToolRegisterResponse = {
+  tool_id: string;
+  name: string;
+  type: string;
 };
 
 /** POST /api/docs/presign */

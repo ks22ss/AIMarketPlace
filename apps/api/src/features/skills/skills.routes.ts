@@ -1,6 +1,10 @@
+import { randomUUID } from "node:crypto";
+
 import { Router } from "express";
 
 import {
+  skillCreateBodySchema,
+  type SkillCreateResponse,
   skillInstallBodySchema,
   type SkillInstallResponse,
   type SkillsListResponse,
@@ -15,6 +19,24 @@ export function createSkillsRouter(): Router {
     response.json(payload);
   });
 
+  router.post("/create", requireAuth, (request, response) => {
+    const parsed = skillCreateBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400).json({
+        error: "Invalid request body",
+        details: parsed.error.flatten(),
+      });
+      return;
+    }
+
+    const payload: SkillCreateResponse = {
+      skill_id: randomUUID(),
+      name: parsed.data.name,
+      version: 1,
+    };
+    response.status(201).json(payload);
+  });
+
   router.post("/install", requireAuth, (request, response) => {
     const parsed = skillInstallBodySchema.safeParse(request.body);
     if (!parsed.success) {
@@ -27,7 +49,7 @@ export function createSkillsRouter(): Router {
 
     const payload: SkillInstallResponse = {
       installed: true,
-      skillId: parsed.data.skill_id,
+      skill_id: parsed.data.skill_id,
     };
     response.status(201).json(payload);
   });
