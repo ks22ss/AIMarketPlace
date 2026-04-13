@@ -20,7 +20,7 @@ Build a **multi-tenant internal AI marketplace platform** where users can:
 # 🧱 2. High-Level Architecture
 
 ```
-Frontend (React + TypeScript; TanStack Query + React Router + Zustand + Tailwind are phased targets — see section 15)
+Frontend (React + TypeScript + Tailwind CSS + shadcn/ui; TanStack Query + React Router + Zustand — see section 15)
         ↓
 Backend API (Express.js API Routes + TypeScript)
         ↓
@@ -430,7 +430,7 @@ Track:
 * Skill config UI
 * Logs / observability UI
 
-**Implementation note (phase 1):** The repository ships a **Vite + React + TypeScript** shell first. TanStack Query, React Router, Zustand, and Tailwind named in the architecture diagram are **target** libraries for later milestones, not necessarily present in the initial scaffold.
+**Implementation note (phase 1):** The web app is **Vite + React + TypeScript** with **Tailwind CSS v4** and **[shadcn/ui](https://ui.shadcn.com/)** (design tokens, `components/ui`, Geist font). TanStack Query, React Router, and Zustand from the architecture diagram are still **targets** for later milestones.
 
 ---
 

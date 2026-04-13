@@ -1,5 +1,16 @@
 import { useEffect, useState } from "react";
-import { resolveApiUrl } from "./apiBase";
+import { ActivityIcon } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { resolveApiUrl } from "@/apiBase";
 
 type HealthResponse = {
   status: string;
@@ -36,17 +47,45 @@ export function App() {
   }, []);
 
   return (
-    <main className="layout">
-      <h1>AI Marketplace</h1>
-      <p className="muted">Local dev base — API + web + Docker services.</p>
-      <section className="card">
-        <h2>API health</h2>
-        {error ? <p className="error">{error}</p> : null}
-        {!error && !health ? <p>Loading…</p> : null}
-        {health ? (
-          <pre className="pre">{JSON.stringify(health, null, 2)}</pre>
-        ) : null}
-      </section>
+    <main className="flex min-h-svh flex-col items-center px-4 py-10">
+      <div className="flex w-full max-w-lg flex-col gap-6">
+        <div className="flex flex-col gap-2">
+          <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">
+            AI Marketplace
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Local dev shell with Tailwind CSS and shadcn/ui (Nova preset).
+          </p>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>API health</CardTitle>
+            <CardDescription>Proxied from the Express API in development.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {error ? (
+              <p className="text-sm text-destructive" role="alert">
+                {error}
+              </p>
+            ) : null}
+            {!error && !health ? (
+              <p className="text-sm text-muted-foreground">Loading…</p>
+            ) : null}
+            {health ? (
+              <pre className="overflow-x-auto rounded-lg border bg-muted/40 p-3 text-xs text-foreground">
+                {JSON.stringify(health, null, 2)}
+              </pre>
+            ) : null}
+          </CardContent>
+          <CardFooter className="flex flex-wrap gap-2 border-t bg-transparent">
+            <Button type="button" variant="secondary" size="sm" disabled>
+              <ActivityIcon data-icon="inline-start" />
+              Status check
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
     </main>
   );
 }
