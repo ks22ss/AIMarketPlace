@@ -102,6 +102,8 @@ export type DocsPresignResponse = {
   uploadUrl: string;
   documentId: string;
   expiresAt: string;
+  /** S3 object key (same as stored `Document.s3Url`). */
+  objectKey: string;
 };
 
 /** POST /api/docs/ingest */
@@ -113,7 +115,28 @@ export type DocsIngestBody = z.infer<typeof docsIngestBodySchema>;
 
 export type DocsIngestResponse = {
   documentId: string;
-  status: "queued" | "processing";
+  status: "ready";
+  chunkCount: number;
+};
+
+/** POST /api/docs/query — embed query and return nearest chunks (RAG context). */
+export const docsQueryBodySchema = z.object({
+  query: z.string().min(1).max(4000),
+  limit: z.number().int().min(1).max(20).optional(),
+});
+
+export type DocsQueryBody = z.infer<typeof docsQueryBodySchema>;
+
+export type DocsQueryChunk = {
+  text: string;
+  doc_id: string;
+  chunk_index: number;
+  /** Distance from Weaviate `nearVector` (lower is closer for cosine-backed indexes). */
+  score: number;
+};
+
+export type DocsQueryResponse = {
+  chunks: DocsQueryChunk[];
 };
 
 /** PUT /api/config/llm */
