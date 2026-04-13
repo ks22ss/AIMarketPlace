@@ -1,73 +1,160 @@
 import { randomUUID } from "node:crypto";
 
+import type { PrismaClient } from "@prisma/client";
+import type OpenAI from "openai";
 import { Router } from "express";
+import { z } from "zod";
 
 import {
   chatPostBodySchema,
   type ChatPostResponse,
 } from "../../contracts/public-api.js";
 import { requireAuth } from "../auth/auth.middleware.js";
-import type { CompiledRagAgentGraph } from "./rag-agent.graph.js";
+import { effectiveOrgId, userMatchesAllowLists } from "../nodes/access.js";
+import type { DocumentPipeline } from "../docs/document.pipeline.js";
+import { runSkill } from "../../lib/agent/runtime.js";
 
 export type ChatRouterDeps = {
-  ragGraph: CompiledRagAgentGraph | null;
+  prisma: PrismaClient;
+  pipeline: DocumentPipeline | null;
+  chatClient: OpenAI | null;
+  model: string;
+  temperature: number;
 };
+
+const skillNodesSchema = z.array(z.string().min(1).max(200)).max(10);
+
+function parseSkillNodes(value: unknown): string[] {
+  const parsed = skillNodesSchema.safeParse(value);
+  return parsed.success ? parsed.data : [];
+}
+
+async function resolveSkillForUser(
+  prisma: PrismaClient,
+  params: { userId: string; org: string; skillId?: string },
+) {
+  if (params.skillId) {
+    return prisma.skill.findFirst({
+      where: {
+        skillId: params.skillId,
+        OR: [{ orgId: params.org }, { orgId: null, createdBy: params.userId }],
+      },
+    });
+  }
+
+  return prisma.skill.findFirst({
+    where: {
+      OR: [{ orgId: params.org }, { orgId: null, createdBy: params.userId }],
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
 
 export function createChatRouter(deps: ChatRouterDeps): Router {
   const router = Router();
 
-  router.post("/", requireAuth, async (request, response) => {
-    const parsed = chatPostBodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      response.status(400).json({
-        error: "Invalid request body",
-        details: parsed.error.flatten(),
-      });
-      return;
-    }
-
-    if (!deps.ragGraph) {
-      response.status(503).json({
-        error: "RAG chat is not configured",
-        detail:
-          "Requires an active document pipeline (embeddings + Weaviate + S3) and chat credentials: " +
-          "CHAT_API_KEY or OPENAI_API_KEY / DEEPINFRA_TOKEN, plus LLM_MODEL and CHAT_BASE_URL or OPENAI_BASE_URL as needed.",
-      });
-      return;
-    }
-
-    const authUser = request.authUser;
-    if (!authUser) {
-      response.status(401).json({ error: "Unauthorized" });
-      return;
-    }
-
-    const traceId = randomUUID();
-
+  router.post("/", requireAuth, async (request, response, next) => {
     try {
-      const finalState = await deps.ragGraph.invoke(
+      const parsed = chatPostBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        response.status(400).json({
+          error: "Invalid request body",
+          details: parsed.error.flatten(),
+        });
+        return;
+      }
+
+      if (!deps.chatClient) {
+        response.status(503).json({
+          error: "Chat is not configured",
+          detail:
+            "Set CHAT_API_KEY or OPENAI_API_KEY (and CHAT_BASE_URL / OPENAI_BASE_URL for MiniMax) plus LLM_MODEL.",
+        });
+        return;
+      }
+
+      const authUser = request.authUser;
+      if (!authUser) {
+        response.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      const user = await deps.prisma.user.findUnique({
+        where: { userId: authUser.userId },
+        select: { userId: true, orgId: true, role: true, department: true },
+      });
+      if (!user) {
+        response.status(401).json({ error: "User not found" });
+        return;
+      }
+
+      const org = effectiveOrgId(user);
+      const skill = await resolveSkillForUser(deps.prisma, {
+        userId: user.userId,
+        org,
+        skillId: parsed.data.skill_id,
+      });
+
+      if (!skill) {
+        response.status(404).json({
+          error: "No skill found",
+          detail: "Create a skill in the Skill Builder or pass skill_id.",
+        });
+        return;
+      }
+
+      if (
+        !userMatchesAllowLists(
+          { role: user.role, department: user.department },
+          skill.allowRole,
+          skill.allowDepartment,
+        )
+      ) {
+        response.status(403).json({ error: "Forbidden", detail: "You cannot run this skill." });
+        return;
+      }
+
+      const nodeNames = parseSkillNodes(skill.skillNodes);
+      if (nodeNames.length === 0) {
+        response.status(400).json({
+          error: "Skill has no nodes",
+          detail: "Update the skill to include at least one workflow step.",
+        });
+        return;
+      }
+
+      const traceId = randomUUID();
+
+      const finalState = await runSkill(
         {
-          userMessage: parsed.data.message,
-          userId: authUser.userId,
-          plannedSkill: "",
-          retrievalContext: "",
-          reply: "",
+          prisma: deps.prisma,
+          pipeline: deps.pipeline,
+          openai: deps.chatClient,
+          model: deps.model,
+          temperature: deps.temperature,
+          orgId: org,
         },
-        { configurable: { userId: authUser.userId } },
+        nodeNames,
+        {
+          query: parsed.data.message,
+          userId: user.userId,
+          orgScope: org,
+        },
       );
 
+      const reply =
+        finalState.output ??
+        (typeof finalState.context === "string" && finalState.context.length > 0
+          ? finalState.context
+          : "(No output)");
+
       const payload: ChatPostResponse = {
-        reply: finalState.reply,
+        reply,
         traceId,
       };
       response.json(payload);
     } catch (error) {
-      console.error("chat RAG agent failed", error);
-      response.status(500).json({
-        error: "Chat failed",
-        traceId,
-        detail: error instanceof Error ? error.message : String(error),
-      });
+      next(error);
     }
   });
 

@@ -65,10 +65,16 @@ export function HomePage() {
             {accessToken ? (
               <>
                 <Button type="button" variant="default" size="sm" asChild>
-                  <Link to="/chat">RAG chat</Link>
+                  <Link to="/chat">Skill chat</Link>
                 </Button>
                 <Button type="button" variant="secondary" size="sm" asChild>
-                  <Link to="/docs/rag">Test document RAG</Link>
+                  <Link to="/nodes/build">Node builder</Link>
+                </Button>
+                <Button type="button" variant="secondary" size="sm" asChild>
+                  <Link to="/skills/build">Skill builder</Link>
+                </Button>
+                <Button type="button" variant="outline" size="sm" asChild>
+                  <Link to="/docs/rag">Document RAG</Link>
                 </Button>
                 <Button type="button" variant="outline" size="sm" onClick={logout}>
                   Sign out
@@ -83,7 +89,13 @@ export function HomePage() {
                   <Link to="/register">Register</Link>
                 </Button>
                 <Button type="button" variant="ghost" size="sm" asChild>
-                  <Link to="/chat">RAG chat</Link>
+                  <Link to="/chat">Skill chat</Link>
+                </Button>
+                <Button type="button" variant="ghost" size="sm" asChild>
+                  <Link to="/nodes/build">Nodes</Link>
+                </Button>
+                <Button type="button" variant="ghost" size="sm" asChild>
+                  <Link to="/skills/build">Skills</Link>
                 </Button>
                 <Button type="button" variant="ghost" size="sm" asChild>
                   <Link to="/docs/rag">Document RAG</Link>

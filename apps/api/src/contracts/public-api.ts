@@ -16,6 +16,7 @@ export type MeResponse = {
 /** POST /api/chat */
 export const chatPostBodySchema = z.object({
   message: z.string().min(1).max(16_000),
+  skill_id: z.string().uuid().optional(),
 });
 
 export type ChatPostBody = z.infer<typeof chatPostBodySchema>;
@@ -25,11 +26,46 @@ export type ChatPostResponse = {
   traceId: string;
 };
 
+/** GET /api/nodes */
+export const nodeCreateBodySchema = z.object({
+  name: z.string().min(1).max(120),
+  description: z.string().max(8000).optional().nullable(),
+  prompt_template: z.string().min(1).max(24_000),
+  allow_role: z.array(z.string().min(1).max(64)).max(32).optional(),
+  allow_department: z.array(z.string().min(1).max(128)).max(32).optional(),
+});
+
+export type NodeCreateBody = z.infer<typeof nodeCreateBodySchema>;
+
+export type NodeDto = {
+  node_id: string;
+  name: string;
+  description: string | null;
+  prompt_template: string;
+  created_by: string;
+  org_id: string;
+  allow_role: string[];
+  allow_department: string[];
+  created_at: string;
+};
+
+export type NodesListResponse = {
+  nodes: NodeDto[];
+};
+
+export type NodeCreateResponse = {
+  node_id: string;
+  name: string;
+};
+
 /** GET /api/skills */
 export type SkillSummaryDto = {
   skill_id: string;
   name: string;
   description: string | null;
+  nodes: string[];
+  org_id: string | null;
+  created_at: string;
 };
 
 export type SkillsListResponse = {
@@ -48,11 +84,15 @@ export type SkillInstallResponse = {
   skill_id: string;
 };
 
-/** POST /api/skills/create */
+/** POST /api/skills (linear composable workflow) */
 export const skillCreateBodySchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(8000).optional().nullable(),
+  /** Ordered node names (1–10), e.g. ["retrieve_documents","summarize"]. */
+  nodes: z.array(z.string().min(1).max(200)).min(1).max(10),
   content: z.record(z.string(), z.unknown()).optional(),
+  allow_role: z.array(z.string().min(1).max(64)).max(32).optional(),
+  allow_department: z.array(z.string().min(1).max(128)).max(32).optional(),
 });
 
 export type SkillCreateBody = z.infer<typeof skillCreateBodySchema>;
@@ -61,6 +101,7 @@ export type SkillCreateResponse = {
   skill_id: string;
   name: string;
   version: number;
+  nodes: string[];
 };
 
 /** GET /api/tools */
