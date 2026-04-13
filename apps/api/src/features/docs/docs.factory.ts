@@ -5,6 +5,12 @@ import { createEmbeddingClient } from "./embeddings.js";
 import { createS3Storage } from "./s3.storage.js";
 import { createWeaviateStore } from "./weaviate.store.js";
 
+/** MiniMax OpenAI-compatible API — https://platform.minimax.io/docs/api-reference/text-openai-api */
+const defaultMiniMaxOpenAiBaseUrl = "https://api.minimax.io/v1";
+
+/** Default text-embedding model id for MiniMax `/v1/embeddings` (OpenAI-compatible). */
+const defaultMiniMaxEmbeddingModel = "embo-01";
+
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -16,7 +22,10 @@ function requireEnv(name: string): string {
 export function createDocumentPipelineFromEnv(prisma: PrismaClient) {
   const weaviateUrl = requireEnv("WEAVIATE_URL");
   const openaiKey = requireEnv("OPENAI_API_KEY");
-  const embeddingModel = process.env.EMBEDDING_MODEL ?? "text-embedding-3-small";
+  const embeddingBaseUrl =
+    process.env.OPENAI_BASE_URL?.trim() || defaultMiniMaxOpenAiBaseUrl;
+  const embeddingModel =
+    process.env.EMBEDDING_MODEL?.trim() || defaultMiniMaxEmbeddingModel;
 
   const s3 = createS3Storage({
     region: process.env.S3_REGION ?? "us-east-1",
@@ -30,7 +39,7 @@ export function createDocumentPipelineFromEnv(prisma: PrismaClient) {
   const weaviate = createWeaviateStore({ baseUrl: weaviateUrl });
   const embeddings = createEmbeddingClient({
     apiKey: openaiKey,
-    baseUrl: process.env.OPENAI_BASE_URL,
+    baseUrl: embeddingBaseUrl,
     model: embeddingModel,
   });
 
