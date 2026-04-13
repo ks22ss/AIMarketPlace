@@ -14,7 +14,7 @@ import type { DocumentPipeline } from "./document.pipeline.js";
 
 export type DocsRouterDeps = {
   prisma: PrismaClient;
-  /** When null (e.g. missing `OPENAI_API_KEY`), document routes return 503. */
+  /** When null (e.g. missing embedding API key), document routes return 503. */
   pipeline: DocumentPipeline | null;
 };
 
@@ -22,7 +22,7 @@ function respondPipelineDisabled(response: import("express").Response): void {
   response.status(503).json({
     error: "Document pipeline is not configured",
     detail:
-      "Set OPENAI_API_KEY, WEAVIATE_URL, S3_ACCESS_KEY, S3_SECRET_KEY, and S3_BUCKET (see .env.example).",
+      "Set DEEPINFRA_API_KEY (or DEEPINFRA_TOKEN / OPENAI_API_KEY), WEAVIATE_URL, S3_ACCESS_KEY, S3_SECRET_KEY, and S3_BUCKET (see .env.example).",
   });
 }
 

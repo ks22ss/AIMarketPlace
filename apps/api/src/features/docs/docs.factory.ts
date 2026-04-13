@@ -5,11 +5,11 @@ import { createEmbeddingClient } from "./embeddings.js";
 import { createS3Storage } from "./s3.storage.js";
 import { createWeaviateStore } from "./weaviate.store.js";
 
-/** MiniMax OpenAI-compatible API — https://platform.minimax.io/docs/api-reference/text-openai-api */
-const defaultMiniMaxOpenAiBaseUrl = "https://api.minimax.io/v1";
+/** DeepInfra OpenAI-compatible embeddings — https://deepinfra.com/openai */
+const defaultEmbeddingBaseUrl = "https://api.deepinfra.com/v1/openai";
 
-/** Default text-embedding model id for MiniMax `/v1/embeddings` (OpenAI-compatible). */
-const defaultMiniMaxEmbeddingModel = "embo-01";
+/** Default embedding model on DeepInfra (multilingual dense). */
+const defaultEmbeddingModel = "BAAI/bge-m3-multi";
 
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -19,13 +19,28 @@ function requireEnv(name: string): string {
   return value;
 }
 
+function requireEmbeddingApiKey(): string {
+  const key =
+    process.env.DEEPINFRA_API_KEY?.trim() ||
+    process.env.DEEPINFRA_TOKEN?.trim() ||
+    process.env.OPENAI_API_KEY?.trim();
+  if (!key) {
+    throw new Error(
+      "DEEPINFRA_API_KEY, DEEPINFRA_TOKEN, or OPENAI_API_KEY is required for the document pipeline (embeddings)",
+    );
+  }
+  return key;
+}
+
 export function createDocumentPipelineFromEnv(prisma: PrismaClient) {
   const weaviateUrl = requireEnv("WEAVIATE_URL");
-  const openaiKey = requireEnv("OPENAI_API_KEY");
+  const embeddingApiKey = requireEmbeddingApiKey();
   const embeddingBaseUrl =
-    process.env.OPENAI_BASE_URL?.trim() || defaultMiniMaxOpenAiBaseUrl;
+    process.env.EMBEDDING_BASE_URL?.trim() ||
+    process.env.OPENAI_BASE_URL?.trim() ||
+    defaultEmbeddingBaseUrl;
   const embeddingModel =
-    process.env.EMBEDDING_MODEL?.trim() || defaultMiniMaxEmbeddingModel;
+    process.env.EMBEDDING_MODEL?.trim() || defaultEmbeddingModel;
 
   const s3 = createS3Storage({
     region: process.env.S3_REGION ?? "us-east-1",
@@ -38,9 +53,10 @@ export function createDocumentPipelineFromEnv(prisma: PrismaClient) {
 
   const weaviate = createWeaviateStore({ baseUrl: weaviateUrl });
   const embeddings = createEmbeddingClient({
-    apiKey: openaiKey,
+    apiKey: embeddingApiKey,
     baseUrl: embeddingBaseUrl,
     model: embeddingModel,
+    encodingFormat: "float",
   });
 
   return createDocumentPipeline({ prisma, s3, weaviate, embeddings });

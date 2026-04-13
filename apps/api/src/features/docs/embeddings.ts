@@ -33,6 +33,8 @@ export type EmbeddingClientConfig = {
   apiKey: string;
   baseUrl?: string;
   model: string;
+  /** DeepInfra / OpenAI-compatible; default `float`. */
+  encodingFormat?: "float" | "base64";
 };
 
 export function createEmbeddingClient(config: EmbeddingClientConfig) {
@@ -54,6 +56,7 @@ export function createEmbeddingClient(config: EmbeddingClientConfig) {
       const response = await client.embeddings.create({
         model: config.model,
         input: batch,
+        encoding_format: config.encodingFormat ?? "float",
       });
 
       const rows = normalizeEmbeddingRows(response, batch.length);
@@ -61,7 +64,7 @@ export function createEmbeddingClient(config: EmbeddingClientConfig) {
         const hint = response.object ? ` object=${response.object}` : "";
         throw new Error(
           `Embeddings API returned no data array${hint} (model=${config.model}, batchSize=${batch.length}). ` +
-            `Check OPENAI_BASE_URL / EMBEDDING_MODEL for OpenAI-compatible embeddings.`,
+            `Check EMBEDDING_BASE_URL (or OPENAI_BASE_URL) and EMBEDDING_MODEL / embedding API key.`,
         );
       }
 
