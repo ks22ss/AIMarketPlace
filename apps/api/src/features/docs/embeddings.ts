@@ -1,5 +1,34 @@
 import OpenAI from "openai";
 
+/** Some OpenAI-compatible providers omit `data` or use a single top-level `embedding` vector. */
+function normalizeEmbeddingRows(
+  response: OpenAI.Embeddings.CreateEmbeddingResponse,
+  batchLength: number,
+): OpenAI.Embeddings.Embedding[] {
+  const rows = response.data;
+  if (Array.isArray(rows) && rows.length > 0) {
+    return rows;
+  }
+
+  const loose = response as unknown as Record<string, unknown>;
+  const single = loose.embedding;
+  if (
+    batchLength === 1 &&
+    Array.isArray(single) &&
+    single.length > 0 &&
+    typeof single[0] === "number"
+  ) {
+    return [{ object: "embedding", index: 0, embedding: single as number[] }];
+  }
+
+  const nested = loose.data;
+  if (Array.isArray(nested) && nested.length > 0 && typeof nested[0] === "object" && nested[0] !== null) {
+    return nested as OpenAI.Embeddings.Embedding[];
+  }
+
+  return [];
+}
+
 export type EmbeddingClientConfig = {
   apiKey: string;
   baseUrl?: string;
@@ -27,9 +56,35 @@ export function createEmbeddingClient(config: EmbeddingClientConfig) {
         input: batch,
       });
 
-      const batchVectors = response.data
-        .sort((left, right) => left.index - right.index)
-        .map((item) => item.embedding);
+      const rows = normalizeEmbeddingRows(response, batch.length);
+      if (rows.length === 0) {
+        const hint = response.object ? ` object=${response.object}` : "";
+        throw new Error(
+          `Embeddings API returned no data array${hint} (model=${config.model}, batchSize=${batch.length}). ` +
+            `Check OPENAI_BASE_URL / EMBEDDING_MODEL for OpenAI-compatible embeddings.`,
+        );
+      }
+
+      const batchVectors = [...rows]
+        .map((item, position) => ({ item, position }))
+        .sort(
+          (left, right) =>
+            (left.item.index ?? left.position) - (right.item.index ?? right.position),
+        )
+        .map(({ item }) => {
+          if (!item.embedding || !Array.isArray(item.embedding)) {
+            throw new Error(
+              `Embeddings API entry missing vector (model=${config.model}, index=${String(item.index)})`,
+            );
+          }
+          return item.embedding;
+        });
+
+      if (batchVectors.length !== batch.length) {
+        throw new Error(
+          `Embedding count mismatch: expected ${batch.length}, got ${batchVectors.length} (model=${config.model})`,
+        );
+      }
 
       embeddings.push(...batchVectors);
     }
