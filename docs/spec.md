@@ -20,7 +20,7 @@ Build a **multi-tenant internal AI marketplace platform** where users can:
 # 🧱 2. High-Level Architecture
 
 ```
-Frontend (React + TypeScript + Tanstack Query + React Router + Zustand + Tailwind)
+Frontend (React + TypeScript; TanStack Query + React Router + Zustand + Tailwind are phased targets — see section 15)
         ↓
 Backend API (Express.js API Routes + TypeScript)
         ↓
@@ -429,6 +429,8 @@ Track:
 * Marketplace UI
 * Skill config UI
 * Logs / observability UI
+
+**Implementation note (phase 1):** The repository ships a **Vite + React + TypeScript** shell first. TanStack Query, React Router, Zustand, and Tailwind named in the architecture diagram are **target** libraries for later milestones, not necessarily present in the initial scaffold.
 
 ---
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { resolveApiUrl } from "./apiBase";
 
 type HealthResponse = {
   status: string;
@@ -12,7 +13,7 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/health")
+    fetch(resolveApiUrl("/api/health"))
       .then(async (response) => {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
