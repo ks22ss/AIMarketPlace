@@ -64,6 +64,9 @@ export function HomePage() {
           <div className="flex flex-wrap gap-2">
             {accessToken ? (
               <>
+                <Button type="button" variant="default" size="sm" asChild>
+                  <Link to="/chat">RAG chat</Link>
+                </Button>
                 <Button type="button" variant="secondary" size="sm" asChild>
                   <Link to="/docs/rag">Test document RAG</Link>
                 </Button>
@@ -78,6 +81,9 @@ export function HomePage() {
                 </Button>
                 <Button type="button" size="sm" asChild>
                   <Link to="/register">Register</Link>
+                </Button>
+                <Button type="button" variant="ghost" size="sm" asChild>
+                  <Link to="/chat">RAG chat</Link>
                 </Button>
                 <Button type="button" variant="ghost" size="sm" asChild>
                   <Link to="/docs/rag">Document RAG</Link>

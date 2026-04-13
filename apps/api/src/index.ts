@@ -4,7 +4,9 @@ import cors from "cors";
 import express from "express";
 
 import { createAuthRouter } from "./features/auth/auth.routes.js";
+import { createChatClientFromEnv, getChatModelId, getChatTemperature } from "./features/chat/chat-llm.js";
 import { createChatRouter } from "./features/chat/chat.routes.js";
+import { compileRagAgentGraph } from "./features/chat/rag-agent.graph.js";
 import { createConfigRouter } from "./features/config/config.routes.js";
 import { createDocumentPipelineFromEnv } from "./features/docs/docs.factory.js";
 import { createDocsRouter } from "./features/docs/docs.routes.js";
@@ -37,7 +39,6 @@ app.get("/api/health", (_request, response) => {
 });
 
 app.use("/api/auth", createAuthRouter(prisma));
-app.use("/api/chat", createChatRouter());
 app.use("/api/skills", createSkillsRouter());
 app.use("/api/tools", createToolsRouter());
 app.use("/api/config", createConfigRouter());
@@ -59,6 +60,23 @@ async function start(): Promise<void> {
   }
 
   app.use("/api/docs", createDocsRouter({ prisma, pipeline: documentPipeline }));
+
+  const chatClient = createChatClientFromEnv();
+  let ragGraph: ReturnType<typeof compileRagAgentGraph> | null = null;
+  if (documentPipeline && chatClient) {
+    ragGraph = compileRagAgentGraph(
+      documentPipeline,
+      chatClient,
+      getChatModelId(),
+      getChatTemperature(),
+    );
+    console.log("RAG chat agent: ready (LangGraph plan → retrieve → answer).");
+  } else {
+    console.warn(
+      "RAG chat agent disabled — need document pipeline + CHAT_API_KEY (or OPENAI_API_KEY / DEEPINFRA_TOKEN).",
+    );
+  }
+  app.use("/api/chat", createChatRouter({ ragGraph }));
 
   app.listen(port, () => {
     console.log(`API listening on http://localhost:${port}`);
