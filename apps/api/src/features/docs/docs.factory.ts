@@ -6,7 +6,7 @@ import { createS3Storage } from "./s3.storage.js";
 import { createWeaviateStore } from "./weaviate.store.js";
 
 function requireEnv(name: string): string {
-  const value = process.env[name];
+  const value = process.env[name]?.trim();
   if (!value) {
     throw new Error(`${name} is required for the document pipeline`);
   }

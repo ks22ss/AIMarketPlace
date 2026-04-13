@@ -14,8 +14,17 @@ import type { DocumentPipeline } from "./document.pipeline.js";
 
 export type DocsRouterDeps = {
   prisma: PrismaClient;
-  pipeline: DocumentPipeline;
+  /** When null (e.g. missing `OPENAI_API_KEY`), document routes return 503. */
+  pipeline: DocumentPipeline | null;
 };
+
+function respondPipelineDisabled(response: import("express").Response): void {
+  response.status(503).json({
+    error: "Document pipeline is not configured",
+    detail:
+      "Set OPENAI_API_KEY, WEAVIATE_URL, S3_ACCESS_KEY, S3_SECRET_KEY, and S3_BUCKET (see .env.example).",
+  });
+}
 
 function mapPipelineError(error: unknown, response: import("express").Response): boolean {
   if (!(error instanceof Error)) {
@@ -61,6 +70,11 @@ export function createDocsRouter(deps: DocsRouterDeps): Router {
       return;
     }
 
+    if (!deps.pipeline) {
+      respondPipelineDisabled(response);
+      return;
+    }
+
     try {
       const user = await deps.prisma.user.findUnique({
         where: { userId: authUser.userId },
@@ -103,6 +117,11 @@ export function createDocsRouter(deps: DocsRouterDeps): Router {
       return;
     }
 
+    if (!deps.pipeline) {
+      respondPipelineDisabled(response);
+      return;
+    }
+
     try {
       const result = await deps.pipeline.ingestDocument({
         userId: authUser.userId,
@@ -137,6 +156,11 @@ export function createDocsRouter(deps: DocsRouterDeps): Router {
     const authUser = request.authUser;
     if (!authUser) {
       response.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    if (!deps.pipeline) {
+      respondPipelineDisabled(response);
       return;
     }
 

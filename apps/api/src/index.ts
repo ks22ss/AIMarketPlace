@@ -14,7 +14,6 @@ import { createToolsRouter } from "./features/tools/tools.routes.js";
 const port = Number(process.env.PORT) || 3001;
 
 const prisma = new PrismaClient();
-const documentPipeline = createDocumentPipelineFromEnv(prisma);
 
 const app = express();
 // Permissive for local dev; replace with an explicit origin allowlist before production.
@@ -41,12 +40,26 @@ app.use("/api/auth", createAuthRouter(prisma));
 app.use("/api/chat", createChatRouter());
 app.use("/api/skills", createSkillsRouter());
 app.use("/api/tools", createToolsRouter());
-app.use("/api/docs", createDocsRouter({ prisma, pipeline: documentPipeline }));
 app.use("/api/config", createConfigRouter());
 
 async function start(): Promise<void> {
   await prisma.$connect();
-  await documentPipeline.bootstrapInfrastructure();
+
+  let documentPipeline: ReturnType<typeof createDocumentPipelineFromEnv> | null = null;
+  try {
+    documentPipeline = createDocumentPipelineFromEnv(prisma);
+    await documentPipeline.bootstrapInfrastructure();
+    console.log("Document pipeline: ready (S3 + Weaviate bootstrap OK).");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      "Document pipeline disabled — API will start without /api/docs embeddings. Reason:",
+      message,
+    );
+  }
+
+  app.use("/api/docs", createDocsRouter({ prisma, pipeline: documentPipeline }));
+
   app.listen(port, () => {
     console.log(`API listening on http://localhost:${port}`);
   });
