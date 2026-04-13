@@ -1,6 +1,8 @@
 # S3 uploads bucket (Terraform)
 
-Small stack that creates one private S3 bucket for file uploads (encryption at rest, public access blocked, optional versioning).
+Small stack that creates one private S3 bucket for file uploads (encryption at rest, public access blocked, optional versioning, TLS-only access via bucket policy). Optional **CORS** (variable-driven origins) supports **browser uploads with presigned URLs** when the SPA talks to S3 directly; if uploads are always proxied through the API first, you can leave CORS disabled (`cors_allowed_origins = []`).
+
+**State file:** the default is a **local** `terraform.tfstate` in this directory, which is fine for solo experiments. For shared or production work, configure a **remote backend** (for example S3 for state plus DynamoDB for state locking) before multiple people run `apply`.
 
 ## Prerequisites
 
@@ -24,7 +26,11 @@ terraform plan
 terraform apply
 ```
 
-After apply, note `bucket_name` from the output (or run `terraform output bucket_name`).
+After apply, note `bucket_name` from the output (or run `terraform output bucket_name`). Run `terraform output cors_enabled` to confirm whether CORS is on.
+
+### Presigned browser uploads (CORS)
+
+Set `cors_allowed_origins` in `terraform.tfvars` to your frontend origin(s), then `terraform apply`. Adjust `cors_allowed_methods` / `cors_allowed_headers` in `variables.tf` defaults only if your presign flow needs more than `GET` / `PUT` / `HEAD`.
 
 ### Upload a test file (AWS CLI)
 

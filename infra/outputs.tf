@@ -17,3 +17,8 @@ output "aws_cli_upload_example" {
   description = "Example aws CLI command to upload a file."
   value       = "aws s3 cp ./local-file.txt s3://${aws_s3_bucket.uploads.id}/prefix/local-file.txt --region ${var.aws_region}"
 }
+
+output "cors_enabled" {
+  description = "Whether S3 CORS is configured (needed for browser PUT/POST to presigned URLs)."
+  value       = local.cors_enabled
+}
