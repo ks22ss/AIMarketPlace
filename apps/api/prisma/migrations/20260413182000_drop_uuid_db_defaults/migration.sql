@@ -1,3 +1,6 @@
+-- Drop DB-level UUID defaults on primary keys (must run after init_core_entities).
+-- Prisma applies migrations in lexicographic folder order.
+
 -- AlterTable
 ALTER TABLE "documents" ALTER COLUMN "doc_id" DROP DEFAULT;
 
