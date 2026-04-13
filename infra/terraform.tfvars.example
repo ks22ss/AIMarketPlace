@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars (not committed) and adjust.
+
+aws_region        = "us-east-1"
+project_name      = "aimarketplace"
+environment       = "dev"
+enable_versioning = false
+
+# When wiring presigned browser uploads, set your SPA origin(s), e.g.:
+# cors_allowed_origins = ["http://localhost:5173", "https://app.example.com"]
