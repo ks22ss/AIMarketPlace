@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 import {
@@ -28,7 +29,10 @@ export type LoginOutcome =
   | { kind: "invalid_credentials" }
   | { kind: "internal_error" };
 
-function isUniqueViolation(error: unknown): boolean {
+function isUniqueConstraintError(error: unknown): boolean {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return error.code === "P2002";
+  }
   return (
     typeof error === "object" &&
     error !== null &&
@@ -49,7 +53,7 @@ export function createAuthService(repository: AuthRepository) {
       const accessToken = signAccessToken({ sub: user.userId, email: user.email });
       return { kind: "success", data: { accessToken, user } };
     } catch (error: unknown) {
-      if (isUniqueViolation(error)) {
+      if (isUniqueConstraintError(error)) {
         return { kind: "email_exists" };
       }
       console.error("register error", error);

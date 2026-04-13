@@ -1,14 +1,14 @@
+import type { PrismaClient } from "@prisma/client";
 import { Router } from "express";
-import type { Pool } from "pg";
 
 import { createAuthController } from "./auth.controller.js";
 import { requireAuth } from "./auth.middleware.js";
 import { createAuthRepository } from "./auth.repository.js";
 import { createAuthService } from "./auth.service.js";
 
-export function createAuthRouter(databasePool: Pool): Router {
+export function createAuthRouter(prisma: PrismaClient): Router {
   const router = Router();
-  const repository = createAuthRepository(databasePool);
+  const repository = createAuthRepository(prisma);
   const service = createAuthService(repository);
   const controller = createAuthController(service);
 

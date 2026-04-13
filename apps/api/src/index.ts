@@ -1,12 +1,13 @@
 import "./env.js";
+import { PrismaClient } from "@prisma/client";
 import cors from "cors";
 import express from "express";
 
 import { createAuthRouter } from "./features/auth/auth.routes.js";
-import { runMigrations } from "./db/migrate.js";
-import { pool } from "./db/pool.js";
 
 const port = Number(process.env.PORT) || 3001;
+
+const prisma = new PrismaClient();
 
 const app = express();
 // Permissive for local dev; replace with an explicit origin allowlist before production.
@@ -29,10 +30,10 @@ app.get("/api/health", (_request, response) => {
   });
 });
 
-app.use("/api/auth", createAuthRouter(pool));
+app.use("/api/auth", createAuthRouter(prisma));
 
 async function start(): Promise<void> {
-  await runMigrations(pool);
+  await prisma.$connect();
   app.listen(port, () => {
     console.log(`API listening on http://localhost:${port}`);
   });
@@ -41,4 +42,8 @@ async function start(): Promise<void> {
 start().catch((error) => {
   console.error("Failed to start API", error);
   process.exit(1);
+});
+
+process.on("beforeExit", async () => {
+  await prisma.$disconnect();
 });

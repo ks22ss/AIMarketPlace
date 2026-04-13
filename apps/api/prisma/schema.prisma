@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Spec §4 — users
+model User {
+  userId       String   @id @default(uuid()) @map("user_id") @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         String   @default("member")
+  department   String?
+  orgId        String?  @map("org_id") @db.Uuid
+  llmConfig    Json     @default("{}") @map("llm_config")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  skillsCreated Skill[]     @relation("SkillCreatedBy")
+  userSkills    UserSkill[]
+  documents     Document[]
+
+  @@map("users")
+}
+
+/// Spec §4 — skills
+model Skill {
+  skillId         String   @id @default(uuid()) @map("skill_id") @db.Uuid
+  name            String
+  description     String?
+  content         Json     @default("{}")
+  version         Int      @default(1)
+  allowRole       String[] @default([]) @map("allow_role")
+  allowDepartment String[] @default([]) @map("allow_department")
+  createdBy       String?  @map("created_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  createdByUser User?        @relation("SkillCreatedBy", fields: [createdBy], references: [userId], onDelete: SetNull)
+  userSkills    UserSkill[]
+  skillTools    SkillTool[]
+
+  @@map("skills")
+}
+
+/// Spec §4 — tools
+model Tool {
+  toolId    String   @id @default(uuid()) @map("tool_id") @db.Uuid
+  name      String
+  type      String
+  config    Json     @default("{}")
+  version   Int      @default(1)
+  allowRole String[] @default([]) @map("allow_role")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  skillTools SkillTool[]
+
+  @@map("tools")
+}
+
+/// Spec §4 — skill_tools (skills ↔ tools)
+model SkillTool {
+  skillId String @map("skill_id") @db.Uuid
+  toolId  String @map("tool_id") @db.Uuid
+
+  skill Skill @relation(fields: [skillId], references: [skillId], onDelete: Cascade)
+  tool  Tool  @relation(fields: [toolId], references: [toolId], onDelete: Cascade)
+
+  @@id([skillId, toolId])
+  @@map("skill_tools")
+}
+
+/// Spec §4 — documents
+model Document {
+  docId     String   @id @default(uuid()) @map("doc_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  orgId     String?  @map("org_id") @db.Uuid
+  s3Url     String   @map("s3_url")
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [userId], onDelete: SetNull)
+
+  @@map("documents")
+}
+
+/// Spec §4 — user_skills (installed skills)
+model UserSkill {
+  userId  String @map("user_id") @db.Uuid
+  skillId String @map("skill_id") @db.Uuid
+
+  user  User  @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  skill Skill @relation(fields: [skillId], references: [skillId], onDelete: Cascade)
+
+  @@id([userId, skillId])
+  @@map("user_skills")
+}
