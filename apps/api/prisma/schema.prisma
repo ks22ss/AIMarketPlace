@@ -37,8 +37,9 @@ model Skill {
   createdBy       String?  @map("created_by") @db.Uuid
   createdAt       DateTime @default(now()) @map("created_at")
 
-  createdByUser User?       @relation("SkillCreatedBy", fields: [createdBy], references: [userId], onDelete: SetNull)
+  createdByUser User?        @relation("SkillCreatedBy", fields: [createdBy], references: [userId], onDelete: SetNull)
   userSkills    UserSkill[]
+  skillTools    SkillTool[]
 
   @@map("skills")
 }
@@ -53,7 +54,21 @@ model Tool {
   allowRole String[] @default([]) @map("allow_role")
   createdAt DateTime @default(now()) @map("created_at")
 
+  skillTools SkillTool[]
+
   @@map("tools")
+}
+
+/// Spec §4 — skill_tools (skills ↔ tools)
+model SkillTool {
+  skillId String @map("skill_id") @db.Uuid
+  toolId  String @map("tool_id") @db.Uuid
+
+  skill Skill @relation(fields: [skillId], references: [skillId], onDelete: Cascade)
+  tool  Tool  @relation(fields: [toolId], references: [toolId], onDelete: Cascade)
+
+  @@id([skillId, toolId])
+  @@map("skill_tools")
 }
 
 /// Spec §4 — documents
