@@ -8,8 +8,7 @@ export function createChatClientFromEnv(): OpenAI | null {
   const apiKey =
     process.env.CHAT_API_KEY?.trim() ||
     process.env.OPENAI_API_KEY?.trim() ||
-    process.env.DEEPINFRA_API_KEY?.trim() ||
-    process.env.DEEPINFRA_TOKEN?.trim();
+    process.env.MINIMAX_API_KEY?.trim();
   if (!apiKey) {
     return null;
   }
@@ -17,7 +16,6 @@ export function createChatClientFromEnv(): OpenAI | null {
   const baseURL =
     process.env.CHAT_BASE_URL?.trim() ||
     process.env.OPENAI_BASE_URL?.trim() ||
-    process.env.EMBEDDING_BASE_URL?.trim() ||
     "https://api.openai.com/v1";
 
   return new OpenAI({ apiKey, baseURL });

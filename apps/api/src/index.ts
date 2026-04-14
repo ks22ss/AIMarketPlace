@@ -1,15 +1,15 @@
 import "./env.js";
 import { PrismaClient } from "@prisma/client";
 import cors from "cors";
-import express from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
 
 import { createAuthRouter } from "./features/auth/auth.routes.js";
 import { createChatClientFromEnv, getChatModelId, getChatTemperature } from "./features/chat/chat-llm.js";
 import { createChatRouter } from "./features/chat/chat.routes.js";
-import { compileRagAgentGraph } from "./features/chat/rag-agent.graph.js";
 import { createConfigRouter } from "./features/config/config.routes.js";
 import { createDocumentPipelineFromEnv } from "./features/docs/docs.factory.js";
 import { createDocsRouter } from "./features/docs/docs.routes.js";
+import { createNodesRouter } from "./features/nodes/nodes.routes.js";
 import { createSkillsRouter } from "./features/skills/skills.routes.js";
 import { createToolsRouter } from "./features/tools/tools.routes.js";
 
@@ -39,7 +39,8 @@ app.get("/api/health", (_request, response) => {
 });
 
 app.use("/api/auth", createAuthRouter(prisma));
-app.use("/api/skills", createSkillsRouter());
+app.use("/api/nodes", createNodesRouter(prisma));
+app.use("/api/skills", createSkillsRouter(prisma));
 app.use("/api/tools", createToolsRouter());
 app.use("/api/config", createConfigRouter());
 
@@ -62,21 +63,37 @@ async function start(): Promise<void> {
   app.use("/api/docs", createDocsRouter({ prisma, pipeline: documentPipeline }));
 
   const chatClient = createChatClientFromEnv();
-  let ragGraph: ReturnType<typeof compileRagAgentGraph> | null = null;
-  if (documentPipeline && chatClient) {
-    ragGraph = compileRagAgentGraph(
-      documentPipeline,
-      chatClient,
-      getChatModelId(),
-      getChatTemperature(),
-    );
-    console.log("RAG chat agent: ready (LangGraph plan → retrieve → answer).");
+  if (chatClient) {
+    console.log("Skill runtime chat: ready (linear nodes + optional retrieve_documents).");
   } else {
     console.warn(
-      "RAG chat agent disabled — need document pipeline + CHAT_API_KEY (or OPENAI_API_KEY / DEEPINFRA_TOKEN).",
+      "Chat disabled — set CHAT_API_KEY or OPENAI_API_KEY (and model / base URL) for composable skill execution.",
     );
   }
-  app.use("/api/chat", createChatRouter({ ragGraph }));
+
+  app.use(
+    "/api/chat",
+    createChatRouter({
+      prisma,
+      pipeline: documentPipeline,
+      chatClient,
+      model: getChatModelId(),
+      temperature: getChatTemperature(),
+    }),
+  );
+
+  app.use(
+    (error: unknown, _request: Request, response: Response, _next: NextFunction) => {
+      console.error(error);
+      const isProduction = process.env.NODE_ENV === "production";
+      if (isProduction) {
+        response.status(500).json({ error: "Internal server error" });
+        return;
+      }
+      const detail = error instanceof Error ? error.message : String(error);
+      response.status(500).json({ error: "Internal server error", detail });
+    },
+  );
 
   app.listen(port, () => {
     console.log(`API listening on http://localhost:${port}`);

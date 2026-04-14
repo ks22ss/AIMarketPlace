@@ -19,6 +19,7 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
 
   skillsCreated Skill[]     @relation("SkillCreatedBy")
+  nodesCreated  Node[]      @relation("NodeCreatedBy")
   userSkills    UserSkill[]
   documents     Document[]
 
@@ -31,10 +32,13 @@ model Skill {
   name            String
   description     String?
   content         Json     @default("{}")
+  /// Ordered workflow node names (strings), e.g. ["retrieve_documents","summarize"].
+  skillNodes      Json     @default("[]") @map("nodes")
   version         Int      @default(1)
   allowRole       String[] @default([]) @map("allow_role")
   allowDepartment String[] @default([]) @map("allow_department")
   createdBy       String?  @map("created_by") @db.Uuid
+  orgId           String?  @map("org_id") @db.Uuid
   createdAt       DateTime @default(now()) @map("created_at")
 
   createdByUser User?        @relation("SkillCreatedBy", fields: [createdBy], references: [userId], onDelete: SetNull)
@@ -42,6 +46,24 @@ model Skill {
   skillTools    SkillTool[]
 
   @@map("skills")
+}
+
+/// Prompt-based composable step (per-org unique name).
+model Node {
+  nodeId          String   @id @default(uuid()) @map("node_id") @db.Uuid
+  name            String
+  description     String?
+  promptTemplate  String   @map("prompt_template")
+  createdBy       String   @map("created_by") @db.Uuid
+  orgId           String   @map("org_id") @db.Uuid
+  allowRole       String[] @default([]) @map("allow_role")
+  allowDepartment String[] @default([]) @map("allow_department")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  creator User @relation("NodeCreatedBy", fields: [createdBy], references: [userId], onDelete: Cascade)
+
+  @@unique([orgId, name])
+  @@map("nodes")
 }
 
 /// Spec §4 — tools

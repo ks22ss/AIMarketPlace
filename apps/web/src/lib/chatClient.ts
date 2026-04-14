@@ -19,14 +19,21 @@ async function readErrorMessage(response: Response): Promise<string> {
   return text || `HTTP ${response.status}`;
 }
 
-export async function postChat(accessToken: string, message: string): Promise<ChatPostResponse> {
+export async function postChat(
+  accessToken: string,
+  message: string,
+  options?: { skill_id?: string },
+): Promise<ChatPostResponse> {
   const response = await fetch(resolveApiUrl("/api/chat"), {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ message }),
+    body: JSON.stringify({
+      message,
+      ...(options?.skill_id ? { skill_id: options.skill_id } : {}),
+    }),
   });
 
   if (!response.ok) {
