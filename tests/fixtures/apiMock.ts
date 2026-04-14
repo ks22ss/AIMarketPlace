@@ -38,7 +38,16 @@ export type MockState = {
   installedSkills: MarketplaceSkill[];
   skills: { skill_id: string; name: string; nodes: string[] }[];
   nodes: { node_id: string; name: string; prompt_template: string }[];
-  documents: { document_id: string; file_name: string; status: string; created_at: string }[];
+  documents: {
+    document_id: string;
+    created_at: string;
+    s3_object_key: string;
+    file_name: string | null;
+    content_type: string | null;
+    ingest_status: string | null;
+    chunk_count: number | null;
+    weaviate_indexed: boolean;
+  }[];
 };
 
 function json(route: Route, status: number, body: unknown) {
@@ -123,7 +132,16 @@ export function createDefaultMockState(): MockState {
       { node_id: "node_1", name: "summarize", prompt_template: "Summarize: {{query}}" },
     ],
     documents: [
-      { document_id: "doc_1", file_name: "handbook.pdf", status: "ready", created_at: now },
+      {
+        document_id: "doc_1",
+        created_at: now,
+        s3_object_key: "documents/doc_1/handbook.pdf",
+        file_name: "handbook.pdf",
+        content_type: "application/pdf",
+        ingest_status: "ready",
+        chunk_count: 42,
+        weaviate_indexed: true,
+      },
     ],
   };
 }
@@ -387,7 +405,16 @@ async function handleApiRoute(route: Route, request: Request, state: MockState):
       return;
     }
     state.documents = [
-      { document_id: body.documentId, file_name: "uploaded.txt", status: "ready", created_at: new Date().toISOString() },
+      {
+        document_id: body.documentId,
+        created_at: new Date().toISOString(),
+        s3_object_key: `documents/${body.documentId}/uploaded.txt`,
+        file_name: "uploaded.txt",
+        content_type: "text/plain",
+        ingest_status: "ready",
+        chunk_count: 3,
+        weaviate_indexed: true,
+      },
       ...state.documents,
     ];
     await json(route, 200, { documentId: body.documentId, status: "ready", chunkCount: 3 });
@@ -410,7 +437,7 @@ async function handleApiRoute(route: Route, request: Request, state: MockState):
     }
     const documentId = decodeURIComponent(path.split("/").pop() ?? "");
     state.documents = state.documents.filter((d) => d.document_id !== documentId);
-    await json(route, 200, { deleted: true, document_id: documentId, storage_cleanup: { ok: true } });
+    await json(route, 200, { deleted: true, document_id: documentId, storage_cleanup: "full" });
     return;
   }
 

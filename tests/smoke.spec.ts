@@ -4,6 +4,9 @@ import { createDefaultMockState, installApiMock } from "./fixtures/apiMock";
 
 test.beforeEach(async ({ page }) => {
   const state = createDefaultMockState();
+  await page.addInitScript(({ token }) => {
+    window.localStorage.setItem("aimarketplace_access_token", token);
+  }, { token: state.accessToken });
   await installApiMock(page, state);
 });
 
@@ -18,22 +21,13 @@ test("sidebar navigation works", async ({ page }) => {
 });
 
 test("marketplace can install a skill and deep-link to chat", async ({ page }) => {
-  const state = createDefaultMockState();
-  // Fresh state per test so install mutates predictably.
-  await installApiMock(page, state);
-
   await page.goto("/marketplace");
 
   await expect(page.getByText("Your installed skills")).toBeVisible();
-  await expect(page.getByText("Meeting notes")).toBeVisible();
+  await expect(page.getByText("Meeting notes", { exact: true })).toBeVisible();
 
   // Install the catalog skill.
-  await page
-    .getByText("Meeting notes")
-    .locator("..")
-    .locator("..")
-    .getByRole("button", { name: "Install" })
-    .click();
+  await page.getByRole("button", { name: "Install", exact: true }).click();
 
   // Installed section should now contain two items.
   await expect(page.getByRole("list").first()).toContainText("Summarize docs");
