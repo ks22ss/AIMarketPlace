@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeftIcon, BotIcon, Loader2Icon, SendHorizonalIcon, UserIcon } from "lucide-react";
+import { BotIcon, Loader2Icon, SendHorizonalIcon, UserIcon } from "lucide-react";
 
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -125,12 +125,6 @@ export function ChatPage() {
     <main className="flex min-h-svh flex-col items-center px-4 py-10">
       <div className="flex w-full max-w-2xl flex-col gap-4">
         <div className="flex flex-col gap-1">
-          <Button type="button" variant="ghost" size="sm" className="w-fit px-0" asChild>
-            <Link to="/" className="gap-1.5 text-muted-foreground">
-              <ArrowLeftIcon className="size-4" />
-              Home
-            </Link>
-          </Button>
           <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Skill chat</h1>
           <p className="text-sm text-muted-foreground">
             Runs your linear skill via <code className="rounded bg-muted px-1 py-0.5 text-xs">POST /api/chat</code>.
@@ -138,12 +132,12 @@ export function ChatPage() {
             <code className="rounded bg-muted px-1 py-0.5 text-xs">retrieve_documents</code> explicitly; duplicates are
             ignored). Build
             skills on{" "}
-            <Link to="/skills/build" className="text-primary underline-offset-4 hover:underline">
+            <Link to="/skills" className="text-primary underline-offset-4 hover:underline">
               Skill builder
             </Link>
             ; ingest docs on{" "}
-            <Link to="/docs/rag" className="text-primary underline-offset-4 hover:underline">
-              Document RAG
+            <Link to="/documents" className="text-primary underline-offset-4 hover:underline">
+              Documents
             </Link>
             .
           </p>

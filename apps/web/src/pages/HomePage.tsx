@@ -21,7 +21,7 @@ type HealthResponse = {
 };
 
 export function HomePage() {
-  const { accessToken, user, authLoading, logout } = useAuth();
+  const { user, authLoading } = useAuth();
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
 
@@ -50,58 +50,19 @@ export function HomePage() {
   }, []);
 
   return (
-    <main className="flex min-h-svh flex-col items-center px-4 py-10">
+    <main className="flex min-h-full flex-1 flex-col items-center px-4 py-10">
       <div className="flex w-full max-w-lg flex-col gap-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex flex-col gap-2">
-            <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">
-              AI Marketplace
-            </h1>
+            <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Dashboard</h1>
             <p className="text-sm text-muted-foreground">
-              Email and password auth with Postgres-backed users.
+              Session overview and API health. Use the sidebar for Chat, Nodes, Skills, Documents, and Marketplace.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {accessToken ? (
-              <>
-                <Button type="button" variant="default" size="sm" asChild>
-                  <Link to="/chat">Skill chat</Link>
-                </Button>
-                <Button type="button" variant="secondary" size="sm" asChild>
-                  <Link to="/nodes/build">Node builder</Link>
-                </Button>
-                <Button type="button" variant="secondary" size="sm" asChild>
-                  <Link to="/skills/build">Skill builder</Link>
-                </Button>
-                <Button type="button" variant="outline" size="sm" asChild>
-                  <Link to="/docs/rag">Document RAG</Link>
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={logout}>
-                  Sign out
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button type="button" variant="outline" size="sm" asChild>
-                  <Link to="/login">Sign in</Link>
-                </Button>
-                <Button type="button" size="sm" asChild>
-                  <Link to="/register">Register</Link>
-                </Button>
-                <Button type="button" variant="ghost" size="sm" asChild>
-                  <Link to="/chat">Skill chat</Link>
-                </Button>
-                <Button type="button" variant="ghost" size="sm" asChild>
-                  <Link to="/nodes/build">Nodes</Link>
-                </Button>
-                <Button type="button" variant="ghost" size="sm" asChild>
-                  <Link to="/skills/build">Skills</Link>
-                </Button>
-                <Button type="button" variant="ghost" size="sm" asChild>
-                  <Link to="/docs/rag">Document RAG</Link>
-                </Button>
-              </>
-            )}
+            <Button type="button" variant="secondary" size="sm" asChild>
+              <Link to="/nodes">Nodes</Link>
+            </Button>
           </div>
         </div>
 
@@ -114,16 +75,13 @@ export function HomePage() {
             {authLoading ? (
               <p className="text-sm text-muted-foreground">Checking session…</p>
             ) : null}
-            {!authLoading && accessToken && user ? (
+            {!authLoading && user ? (
               <pre className="overflow-x-auto rounded-lg border bg-muted/40 p-3 text-xs text-foreground">
                 {JSON.stringify(user, null, 2)}
               </pre>
             ) : null}
-            {!authLoading && !accessToken ? (
-              <p className="text-sm text-muted-foreground">
-                You are not signed in. Use Register or Sign in to hit{" "}
-                <code className="rounded bg-muted px-1 py-0.5 text-xs">GET /api/auth/me</code>.
-              </p>
+            {!authLoading && !user ? (
+              <p className="text-sm text-muted-foreground">Could not load profile. Try signing out and back in.</p>
             ) : null}
           </CardContent>
         </Card>

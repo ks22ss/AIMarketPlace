@@ -194,11 +194,33 @@ export function createDocumentPipeline(deps: DocumentPipelineDeps) {
     }));
   }
 
+  async function deleteUserDocument(input: { userId: string; documentId: string }): Promise<void> {
+    const document = await deps.prisma.document.findUnique({
+      where: { docId: input.documentId },
+    });
+
+    if (!document) {
+      throw new Error("Document not found");
+    }
+
+    const ownerId = document.userId;
+    if (!ownerId || ownerId !== input.userId) {
+      throw new Error("Forbidden");
+    }
+
+    await deps.weaviate.deleteChunksForDocument(document.docId, input.userId);
+    await deps.s3.deleteObject(document.s3Url);
+    await deps.prisma.document.delete({
+      where: { docId: document.docId },
+    });
+  }
+
   return {
     bootstrapInfrastructure,
     createPresignedUpload,
     ingestDocument,
     queryContext,
+    deleteUserDocument,
   };
 }
 

@@ -3,9 +3,12 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { AuthProvider } from "@/auth/AuthContext";
+import { RequireAuth } from "@/auth/RequireAuth";
+import { AppLayout } from "@/components/AppLayout";
 import { ChatPage } from "@/pages/ChatPage";
 import { DocsRagPage } from "@/pages/DocsRagPage";
 import { HomePage } from "@/pages/HomePage";
+import { MarketplacePage } from "@/pages/MarketplacePage";
 import { NodeBuilderPage } from "@/pages/NodeBuilderPage";
 import { SkillBuilderPage } from "@/pages/SkillBuilderPage";
 import { LoginPage } from "@/pages/LoginPage";
@@ -17,14 +20,22 @@ createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
       <AuthProvider>
         <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/docs/rag" element={<DocsRagPage />} />
-          <Route path="/chat" element={<ChatPage />} />
-          <Route path="/nodes/build" element={<NodeBuilderPage />} />
-          <Route path="/skills/build" element={<SkillBuilderPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="/skills/build" element={<Navigate to="/skills" replace />} />
+          <Route path="/docs/rag" element={<Navigate to="/documents" replace />} />
+          <Route path="/nodes/build" element={<Navigate to="/nodes" replace />} />
+          <Route element={<RequireAuth />}>
+            <Route element={<AppLayout />}>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/chat" element={<ChatPage />} />
+              <Route path="/nodes" element={<NodeBuilderPage />} />
+              <Route path="/skills" element={<SkillBuilderPage />} />
+              <Route path="/documents" element={<DocsRagPage />} />
+              <Route path="/marketplace" element={<MarketplacePage />} />
+            </Route>
+          </Route>
+          <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>
