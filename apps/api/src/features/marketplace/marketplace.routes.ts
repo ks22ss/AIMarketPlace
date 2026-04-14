@@ -8,6 +8,8 @@ import { findVisibleSkillsForUser, parseStoredSkillNodes } from "../skills/skill
 
 const DEFAULT_LIMIT = 16;
 const MAX_LIMIT = 32;
+/** When `installed_only` is set, allow a larger page size so the reference list can load in one request. */
+const MAX_LIMIT_INSTALLED_ONLY = 100;
 
 export function createMarketplaceRouter(prisma: PrismaClient): Router {
   const router = Router();
@@ -22,12 +24,20 @@ export function createMarketplaceRouter(prisma: PrismaClient): Router {
         return;
       }
 
+      const installedOnlyRaw = request.query.installed_only;
+      const installedOnly =
+        installedOnlyRaw === "true" ||
+        installedOnlyRaw === "1" ||
+        installedOnlyRaw === "yes";
+
       const pageRaw = request.query.page;
       const limitRaw = request.query.limit;
       const page = Math.max(1, typeof pageRaw === "string" ? Number.parseInt(pageRaw, 10) || 1 : 1);
+      const defaultLimit = installedOnly ? MAX_LIMIT_INSTALLED_ONLY : DEFAULT_LIMIT;
       const limitUncapped =
-        typeof limitRaw === "string" ? Number.parseInt(limitRaw, 10) || DEFAULT_LIMIT : DEFAULT_LIMIT;
-      const limit = Math.min(MAX_LIMIT, Math.max(1, limitUncapped));
+        typeof limitRaw === "string" ? Number.parseInt(limitRaw, 10) || defaultLimit : defaultLimit;
+      const cap = installedOnly ? MAX_LIMIT_INSTALLED_ONLY : MAX_LIMIT;
+      const limit = Math.min(cap, Math.max(1, limitUncapped));
 
       const result = await findVisibleSkillsForUser(prisma, auth.userId);
       if (!result) {
@@ -41,10 +51,14 @@ export function createMarketplaceRouter(prisma: PrismaClient): Router {
       });
       const installedSet = new Set(installedRows.map((r) => r.skillId));
 
-      const { skills: visible } = result;
-      const total = visible.length;
+      let candidates = result.skills;
+      if (installedOnly) {
+        candidates = candidates.filter((s) => installedSet.has(s.skillId));
+      }
+
+      const total = candidates.length;
       const skip = (page - 1) * limit;
-      const pageRows = visible.slice(skip, skip + limit);
+      const pageRows = candidates.slice(skip, skip + limit);
 
       const skills: MarketplaceSkillSummaryDto[] = pageRows.map((s) => ({
         skill_id: s.skillId,

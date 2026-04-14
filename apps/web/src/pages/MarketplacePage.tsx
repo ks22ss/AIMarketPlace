@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
   BookOpenIcon,
@@ -6,6 +7,7 @@ import {
   CpuIcon,
   LibraryBigIcon,
   Loader2Icon,
+  MessageSquareIcon,
   PuzzleIcon,
   SparklesIcon,
   Wand2Icon,
@@ -59,6 +61,35 @@ export function MarketplacePage() {
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [mutatingId, setMutatingId] = useState<string | null>(null);
+  const [installedSkills, setInstalledSkills] = useState<MarketplaceSkillSummaryDto[]>([]);
+  const [installedLoading, setInstalledLoading] = useState(false);
+  const [installedError, setInstalledError] = useState<string | null>(null);
+
+  const refreshInstalled = useCallback(async () => {
+    if (!accessToken) {
+      setInstalledSkills([]);
+      return;
+    }
+    setInstalledLoading(true);
+    setInstalledError(null);
+    try {
+      const result = await listMarketplaceSkills(accessToken, {
+        page: 1,
+        limit: 100,
+        installed_only: true,
+      });
+      setInstalledSkills(result.skills);
+    } catch (error: unknown) {
+      setInstalledError(error instanceof Error ? error.message : "Failed to load installed skills");
+      setInstalledSkills([]);
+    } finally {
+      setInstalledLoading(false);
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    void refreshInstalled();
+  }, [refreshInstalled]);
 
   const refresh = useCallback(async () => {
     if (!accessToken) {
@@ -103,13 +134,14 @@ export function MarketplacePage() {
       try {
         await installSkill(accessToken, skillId);
         await refresh();
+        await refreshInstalled();
       } catch (error: unknown) {
         setListError(error instanceof Error ? error.message : "Install failed");
       } finally {
         setMutatingId(null);
       }
     },
-    [accessToken, refresh],
+    [accessToken, refresh, refreshInstalled],
   );
 
   const handleUninstall = useCallback(
@@ -126,22 +158,33 @@ export function MarketplacePage() {
       try {
         await uninstallSkill(accessToken, skillId);
         await refresh();
+        await refreshInstalled();
       } catch (error: unknown) {
         setListError(error instanceof Error ? error.message : "Uninstall failed");
       } finally {
         setMutatingId(null);
       }
     },
-    [accessToken, refresh],
+    [accessToken, refresh, refreshInstalled],
   );
 
   return (
     <main className="flex min-h-full flex-1 flex-col gap-6 bg-background px-4 py-10">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-2">
-        <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Marketplace</h1>
-        <p className="max-w-2xl text-sm text-muted-foreground">
-          Browse skills available to your organization and install them for use in chat.
-        </p>
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Marketplace</h1>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            Browse skills available to your organization and install them for use in chat.
+          </p>
+        </div>
+        {!authLoading && accessToken ? (
+          <Button asChild className="shrink-0">
+            <Link to="/chat" className="inline-flex items-center gap-2">
+              <MessageSquareIcon className="size-4 shrink-0" aria-hidden />
+              Start Chat
+            </Link>
+          </Button>
+        ) : null}
       </div>
 
       {authLoading ? (
@@ -159,6 +202,49 @@ export function MarketplacePage() {
               {listError}
             </p>
           ) : null}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Your installed skills</CardTitle>
+              <CardDescription>
+                Skills you have installed appear here for quick reference. Choose one in Chat to run a conversation.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
+              {installedLoading ? (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2Icon className="size-4 animate-spin" aria-hidden />
+                  Loading installed skills…
+                </p>
+              ) : null}
+              {installedError ? (
+                <p className="text-sm text-destructive" role="alert">
+                  {installedError}
+                </p>
+              ) : null}
+              {!installedLoading && !installedError && installedSkills.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  None yet. Install skills from the catalog below, then use them from Chat.
+                </p>
+              ) : null}
+              {!installedLoading && installedSkills.length > 0 ? (
+                <ul className="divide-y divide-border rounded-lg border border-border">
+                  {installedSkills.map((skill) => (
+                    <li key={skill.skill_id} className="flex flex-col gap-0.5 px-3 py-2.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
+                      <span className="text-sm font-medium text-foreground">{skill.name}</span>
+                      {skill.description?.trim() ? (
+                        <span className="line-clamp-2 text-xs text-muted-foreground sm:max-w-md sm:text-right">
+                          {skill.description}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground sm:text-right">No description</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </CardContent>
+          </Card>
 
           {listLoading ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">

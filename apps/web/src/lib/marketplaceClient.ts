@@ -29,7 +29,7 @@ async function readErrorMessage(response: Response): Promise<string> {
 
 export async function listMarketplaceSkills(
   accessToken: string,
-  params: { page?: number; limit?: number } = {},
+  params: { page?: number; limit?: number; installed_only?: boolean } = {},
 ): Promise<MarketplaceSkillsListResponse> {
   const qs = new URLSearchParams();
   if (params.page != null) {
@@ -37,6 +37,9 @@ export async function listMarketplaceSkills(
   }
   if (params.limit != null) {
     qs.set("limit", String(params.limit));
+  }
+  if (params.installed_only) {
+    qs.set("installed_only", "true");
   }
   const suffix = qs.size > 0 ? `?${qs.toString()}` : "";
   const response = await fetch(resolveApiUrl(`/api/marketplace/skills${suffix}`), {
