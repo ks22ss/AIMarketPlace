@@ -1,538 +1,117 @@
-# 🧾 spec.md — Agentic AI Marketplace Platform
+# Specification (as implemented)
 
----
+This document describes behavior that exists in the repository today: routes, persistence, and runtime wiring.
 
-# 🎯 1. Objective
+## 1. System overview
 
-Build a **multi-tenant internal AI marketplace platform** where users can:
+- **Web app**: Vite + React 18 + TypeScript, Tailwind CSS v4, shadcn/ui-style components, React Router v7. No TanStack Query or Zustand in `apps/web` dependencies.
+- **API**: Express (TypeScript) on port `3001` by default (`PORT`). Loads env from repo-root `.env` (see `apps/api/src/env.ts`).
+- **Monorepo scripts** (root `package.json`): `npm run dev` runs API and web via `concurrently`; `npm run build` builds all workspaces that define `build`.
 
-* Chat with a default agent
-* Install **skills (agent workflows)**
-* Use **tools (APIs/functions)**
-* Upload documents for RAG
-* Configure models
-* Run **agentic workflows (LangGraph)**
-* Ensure quality via **Promptfoo + RAGAS**
-* Monitor via **LangSmith**
+## 2. Local infrastructure (`docker-compose.yml`)
 
----
+Services started for local development:
 
-# 🧱 2. High-Level Architecture
+| Service    | Purpose |
+|-----------|---------|
+| PostgreSQL 16 | Primary application database (`DATABASE_URL`). |
+| Redis 7 | Container only; **no application code reads `REDIS_URL` or connects to Redis**. |
+| Weaviate 1.27 | Vector store for document chunks (`WEAVIATE_URL`). |
+| MinIO | S3-compatible API for uploads (`S3_ENDPOINT`, path-style). |
 
-```
-Frontend (React + TypeScript + Tailwind CSS + shadcn/ui; TanStack Query + React Router + Zustand — see section 15)
-        ↓
-Backend API (Express.js API Routes + TypeScript)
-        ↓
-Agent Runtime (LangGraph)
-        ↓
- ┌──────────────┬──────────────┬──────────────┐
- ↓              ↓              ↓
-Weaviate     Tool Executor    LLM API
-(Vector DB)  (Node Service)   (Minmax/OpenAI)
+If embedding/S3/Weaviate configuration is missing or invalid, the API still starts; the document pipeline is disabled and `/api/docs` returns `503` for pipeline-dependent operations (see startup logs in `apps/api/src/index.ts`).
 
-        ↓
-Storage Layer:
-- Postgres (state/config)
-- Redis (cache + short memory)
-- S3 (documents)
+## 3. Data model (Prisma)
 
-        ↓
-Evaluation Layer:
-- Promptfoo
-- RAGAS
+Source: `apps/api/prisma/schema.prisma`.
 
-        ↓
-Observability:
-- LangSmith
-```
+- **Department**, **Role**: reference tables (e.g. registration uses departments; roles seeded as `member`, `admin`).
+- **User**: `user_id`, `email`, `password_hash`, `role` (slug string), `department_id` → Department, optional `org_id`, `llm_config` JSON, timestamps. **Registration** sets `org_id` to the shared constant `DEFAULT_ORG_ID` in `lib/org-config.ts` (single-tenant-style org for all new members).
+- **Node**: org-scoped named prompt templates (`org_id` + unique `name`), allow lists for role slugs and department names.
+- **Skill**: `skill_nodes` JSON array of node name strings (workflow order), allow lists, optional `org_id`, `created_by`.
+- **Tool**, **SkillTool**: tables exist; see §8 for current API behavior.
+- **UserSkill**: installed skills per user (composite PK).
+- **Document**: `doc_id`, optional `user_id` / `org_id`, `s3_url` (object key), `metadata` JSON (ingest status, chunk count, filenames, etc.).
 
----
+## 4. Object storage (S3 / MinIO)
 
-# 🧠 3. Core Concepts
+- **Key layout** (see `document.pipeline.ts`): `{orgKey}/{userId}/{documentId}/{sanitizedFileName}` where `orgKey` is the user’s `org_id` or a zero UUID placeholder when null.
+- **Presigned upload**: `PutObjectCommand` via AWS SDK v3; no extra encryption fields on the presign call. **Terraform** for AWS defines default bucket SSE (`AES256`) for the uploads bucket; local MinIO behavior depends on server config.
 
-## Skill
+## 5. Weaviate
 
-Reusable **agent workflow module**
+- **Class**: `DocumentChunk` (created if missing).
+- **Properties**: `text`, `user_id`, `org_id`, `doc_id`, `chunk_index`; vectors supplied at insert (`vectorizer: none`).
+- **Similarity**: cosine (`vectorIndexConfig.distance`).
+- **Query filter**: GraphQL `where` on `user_id` **only** (see `weaviate.store.ts`). Retrieval is **per uploading user**, not per department name in the vector index.
 
-* Defined as LangGraph subgraph
-* Contains tools + prompts
+## 6. Document pipeline
 
-## Tool
-
-Executable function/API
+1. **POST `/api/docs/presign`** (auth): creates `Document` row, returns presigned `uploadUrl`, `documentId`, `objectKey`.
+2. Client uploads bytes to storage.
+3. **POST `/api/docs/ingest`** (auth): downloads object, extracts text, chunks, embeds, deletes prior chunks for that doc/user, inserts into Weaviate, updates metadata (`ingestStatus: ready`, `chunkCount`).
+4. **Chunking**: `chunkText` in `chunking.ts` — default **1200** characters, **150** overlap.
+5. **Embeddings**: OpenAI-compatible client; batches of **64** texts per request (`embeddings.ts`).
+6. **GET `/api/docs`**: lists current user’s documents and ingest metadata.
+7. **DELETE `/api/docs/:documentId`**: owner-only; with pipeline enabled, deletes DB row, S3 object, and Weaviate chunks; without pipeline, may delete DB only.
+8. **POST `/api/docs/query`** (auth): embeds query string, nearest-vector search filtered by `user_id`; request body `limit` defaults to **8** (capped 1–100 in store).
 
-* Structured schema
-* Called by agent
+**Supported ingest types** (see `extract-text.ts`): PDF, plain text, Markdown, CSV, JSON, XML, HTML (by MIME or extension).
 
-## Agent Runtime
+## 7. Authentication and access control
 
-LangGraph-based execution engine:
+- **POST `/api/auth/register`**, **POST `/api/auth/login`**, **GET `/api/auth/me`** (JWT in `Authorization: Bearer`).
+- Skills and nodes enforce **allow_role** and **allow_department** lists where applicable (`userMatchesAllowLists`, `resolveAllowLists`).
+- **POST `/api/chat`** requires the skill to be **installed** (`UserSkill`) and allowed for the user’s role/department.
 
-* planner → select → execute → critique → loop
+## 8. Chat and skill runtime
 
----
+- **POST `/api/chat`**: body `message`, optional `skill_id` (`public-api.ts`). Requires a configured chat model (`CHAT_API_KEY` or `OPENAI_API_KEY` or `MINIMAX_API_KEY`, plus base URL / `LLM_MODEL` — see `chat-llm.ts`). Returns `reply` and `traceId` (UUID generated per request; not a persisted trace id).
+- **Execution** (`lib/agent/runtime.ts`): **linear** execution over an ordered list of node names. If the document pipeline is enabled, a synthetic first step **`retrieve_documents`** is prepended (and duplicates of that name in the skill are stripped) so one vector query runs before prompt nodes.
+- **`retrieve_documents`**: calls `pipeline.queryContext` with **limit 12**, joins chunk texts into `context`.
+- **Prompt nodes**: load `Node` by org + name; substitute `{{query}}`, `{{context}}`, `{{output}}`; if the template omits `{{context}}` but context exists, context is appended; if retrieval ran but context is empty, an explicit “no excerpts” line may be appended. One LLM call per prompt node via LangChain `ChatOpenAI.invoke`.
+- **LangGraph**: `@langchain/langgraph` is a dependency, and `features/chat/rag-agent.graph.ts` defines a small plan → retrieve → answer graph using the OpenAI SDK — **this graph is not imported by `index.ts` or `chat.routes.ts`**. HTTP chat uses `runSkill` only.
 
-# 🗄️ 4. Database Design
+## 9. Tools API (stub)
 
-## Users
+- **GET `/api/tools`**: always returns `{ "tools": [] }`.
+- **POST `/api/tools/register`**: validates body, responds `201` with a **random UUID** and echo of name/type — **does not write to the database** and does not attach tools to skills in a persisted way.
 
-```sql
-users (
-  user_id UUID PK,
-  email TEXT UNIQUE,
-  password_hash TEXT,
-  role TEXT,
-  department TEXT,
-  org_id UUID,
-  llm_config JSONB,
-  created_at TIMESTAMP
-)
-```
+## 10. Config API (stub)
 
----
+- **PUT `/api/config/llm`**: validates body, returns JSON with model, temperature, and `updatedAt` — **does not persist** to `User.llmConfig` or elsewhere.
 
-## Skills
+## 11. Reference data
 
-```sql
-skills (
-  skill_id UUID PK,
-  name TEXT,
-  description TEXT,
-  content JSONB,
-  version INT,
-  allow_role TEXT[],
-  allow_department TEXT[],
-  created_by UUID,
-  created_at TIMESTAMP
-)
-```
+- **GET `/api/reference/departments`**: lists departments.
+- **GET `/api/reference/roles`**: lists roles.
 
----
+## 12. Nodes and skills (persisted)
 
-## Tools
+- **GET/POST `/api/nodes`**: list and create org-scoped nodes (prompt templates, allow lists). System-reserved name: `retrieve_documents` cannot be used as a user node name (see `node-naming` / routes).
+- **GET `/api/skills`**, **POST `/api/skills`**, deprecated **POST `/api/skills/create`**, **POST `/api/skills/install`**, **DELETE `/api/skills/install/:skillId`**: list/create/install/uninstall skills; nodes in the skill must exist and be accessible unless the name is the system retrieve step.
 
-```sql
-tools (
-  tool_id UUID PK,
-  name TEXT,
-  type TEXT,
-  config JSONB,
-  version INT,
-  allow_role TEXT[],
-  created_at TIMESTAMP
-)
-```
+## 13. Marketplace
 
----
+- **GET `/api/marketplace/skills`**: paginated, org-visible skills with `accessible` / `detail_hidden` / `installed` flags for the current user.
 
-## Skill_Tools
+## 14. Health
 
-```sql
-skill_tools (
-  skill_id UUID,
-  tool_id UUID
-)
-```
+- **GET `/health`**, **GET `/api/health`**: JSON `{ status, service, timestamp }`.
 
----
+## 15. Observability
 
-## User_Skills (installed)
+- **LangSmith**: optional; LangChain’s ecosystem picks up `LANGSMITH_*` when set (comment in `chat-llm.ts`). No custom LangSmith UI in this repo.
+- **Promptfoo / RAGAS / evaluation gates**: **not** present in CI or application code paths documented here.
 
-```sql
-user_skills (
-  user_id UUID,
-  skill_id UUID
-)
-```
+## 16. CI (`.github/workflows/ci.yml`)
 
----
+On push/PR to `master`: `npm ci`, Playwright browser install, `npm run build`, `npm run test -w @aimarketplace/api` (Vitest), `npx playwright test`. No Terraform apply or deployment in this workflow.
 
-## Documents
+## 17. Terraform (`infra/`)
 
-```sql
-documents (
-  doc_id UUID PK,
-  user_id UUID,
-  org_id UUID,
-  s3_url TEXT,
-  metadata JSONB,
-  created_at TIMESTAMP
-)
-```
+AWS resources include an S3 uploads bucket with public access blocked, default **AES256** encryption, optional versioning, CORS for browser uploads when variables are set, and related IAM. **No RDS, ElastiCache, ECS/EKS, or API Gateway** definitions in this Terraform layout as checked against `main.tf` / related files.
 
----
+## 18. Frontend routes (`apps/web/src/main.tsx`)
 
-# 🧲 5. Vector DB (Weaviate)
-
-Schema:
-
-* class: `DocumentChunk`
-
-  * text
-  * embedding
-  * user_id
-  * org_id
-  * doc_id
-
----
-
-# 🧠 6. Redis Usage
-
-* conversation memory
-* caching:
-
-  * embeddings
-  * retrieval results
-  * LLM responses (optional)
-
----
-
-# ☁️ 7. S3 Design
-
-Path:
-
-```
-/org_id/user_id/doc_id/file.pdf
-```
-
-Use:
-
-* presigned upload URL
-
----
-
-# 🔌 8. API Design
-
-## Auth
-
-### POST /api/auth/register
-
-### POST /api/auth/login
-
----
-
-## Chat / Agent
-
-### POST /api/chat
-
-Request:
-
-```json
-{
-  "message": "string"
-}
-```
-
-Flow:
-
-1. fetch user config
-2. load installed skills
-3. call Agent Runtime
-4. return response
-
----
-
-## Skills
-
-### GET /api/skills
-
-List available skills
-
-### POST /api/skills/install
-
-```json
-{
-  "skill_id": "uuid"
-}
-```
-
-### POST /api/skills/create
-
-* create new skill
-
----
-
-## Tools
-
-### GET /api/tools
-
-### POST /api/tools/register
-
----
-
-## Documents
-
-### POST /api/docs/presign
-
-→ returns upload URL
-
-### POST /api/docs/ingest
-
-* trigger embedding + indexing
-
----
-
-## Config
-
-### PUT /api/config/llm
-
-```json
-{
-  "model": "minmax",
-  "temperature": 0.7
-}
-```
-
----
-
-# 🤖 9. Agent Runtime (LangGraph)
-
-**MVP note:** `POST /api/chat` runs skills as a **linear ordered node chain** (variable injection plus optional `retrieve_documents`), not the LangGraph planner loop sketched below. LangGraph remains in use for document/RAG paths and can replace or augment chat execution later.
-
-## Flow
-
-```
-User Input
-   ↓
-Intent Parser
-   ↓
-Planner
-   ↓
-Skill Selector
-   ↓
-Execution Node
-   ↓
-Tool Router
-   ↓
-Critic Node
-   ↓
-Loop Controller
-   ↓
-Final Output
-```
-
----
-
-## Skill Selection
-
-Hybrid:
-
-* embedding similarity
-* LLM reasoning
-
----
-
-## Tool Execution
-
-* validate schema
-* execute API
-* return structured JSON
-
----
-
-## Failure Handling
-
-* retry (max 2)
-* fallback tool
-* degrade response
-
----
-
-# 🧪 10. Evaluation Pipeline
-
-## Promptfoo
-
-* test cases:
-
-  * input → expected output
-
-## RAGAS
-
-* evaluate:
-
-  * faithfulness
-  * relevance
-  * answer correctness
-
----
-
-## Flow
-
-```
-Skill Created
-   ↓
-Run Promptfoo
-   ↓
-Run RAGAS
-   ↓
-If pass → publish
-Else → reject
-```
-
----
-
-# 🔍 11. Observability (LangSmith)
-
-Track:
-
-* agent steps
-* tool calls
-* latency
-* errors
-
----
-
-# 🔐 12. Security
-
-* RBAC (role-based)
-* department access
-* tool permission validation
-* skill permission validation
-
----
-
-# 🧠 13. Multi-Tenancy
-
-* org_id everywhere
-* S3 isolation
-* Weaviate namespace
-* Postgres filtering
-
----
-
-# ⚙️ 14. CI/CD (Terraform + GitHub Actions)
-
-## Steps
-
-1. Build
-2. Run tests
-3. Run Promptfoo
-4. Run RAGAS
-5. Deploy to AWS
-
----
-
-## Infra (Terraform)
-
-* ECS / EKS
-* RDS (Postgres)
-* ElastiCache (Redis)
-* S3
-* API Gateway
-
----
-
-# 🧩 15. Components
-
-## Frontend
-
-* Chat UI
-* Marketplace UI
-* Skill config UI
-* Logs / observability UI
-
-**Implementation note (phase 1):** The web app is **Vite + React + TypeScript** with **Tailwind CSS v4** and **[shadcn/ui](https://ui.shadcn.com/)** (design tokens, `components/ui`, Geist font). TanStack Query, React Router, and Zustand from the architecture diagram are still **targets** for later milestones.
-
----
-
-## Backend
-
-* API routes
-* Agent runtime
-* Tool executor
-* ingestion pipeline
-
----
-
-# ✅ 16. Happy Path
-
-## Chat
-
-1. user sends message
-2. backend loads config
-3. agent selects skill
-4. tools executed
-5. response returned
-
----
-
-## Document Upload
-
-1. request presigned URL
-2. upload to S3
-3. call ingest
-4. embed + store in Weaviate
-
----
-
-## Skill Install
-
-1. user clicks install
-2. saved in user_skills
-3. available in runtime
-
----
-
-# ⚠️ 17. Edge Cases
-
-## Agent
-
-* no skill matched → fallback to base LLM
-* tool failure → retry / fallback
-* empty retrieval → ask clarification
-
----
-
-## Data
-
-* duplicate document → dedupe via hash
-* embedding failure → retry queue
-
----
-
-## System
-
-* Redis down → fallback stateless mode
-* Weaviate slow → degrade to LLM-only
-
----
-
-## Security
-
-* unauthorized skill → block execution
-* tool misuse → validate schema strictly
-
----
-
-# 🚀 18. MVP Scope (IMPORTANT)
-
-Start with:
-
-* chat + 1 agent flow
-* basic skill system
-* 1 tool (retriever)
-* document upload + RAG
-* no UI polish
-
----
-
-# 🧠 19. Key Design Principles
-
-* composability (skills as modules)
-* observability-first
-* evaluation-first
-* multi-tenant safe
-* agent-driven, not user-command-driven
-
----
-
-# 🎯 Final Note
-
-This is not a chatbot.
-
-This is:
-
-> **A composable, observable, and evaluatable agent platform designed for enterprise use**
-
----
+Authenticated shell: `/` (home), `/chat`, `/nodes`, `/skills`, `/documents`, `/marketplace`. Auth routes: `/login`, `/register`. Legacy paths redirect (`/skills/build` → `/skills`, etc.).
