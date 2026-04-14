@@ -76,7 +76,7 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
     }
 
     const org = effectiveOrgId(user);
-    const accessUser = { role: user.role, department: user.department.name };
+    const accessUser = { role: normalizeUserRoleSlug(user.role), department: user.department.name };
 
     for (const nodeName of nodes) {
       if (isSystemNodeName(nodeName)) {
