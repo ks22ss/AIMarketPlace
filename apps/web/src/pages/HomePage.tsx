@@ -65,16 +65,19 @@ export function HomePage() {
             {accessToken ? (
               <>
                 <Button type="button" variant="default" size="sm" asChild>
-                  <Link to="/chat">Skill chat</Link>
+                  <Link to="/chat">Chat</Link>
                 </Button>
                 <Button type="button" variant="secondary" size="sm" asChild>
                   <Link to="/nodes/build">Node builder</Link>
                 </Button>
                 <Button type="button" variant="secondary" size="sm" asChild>
-                  <Link to="/skills/build">Skill builder</Link>
+                  <Link to="/skills">Skills</Link>
                 </Button>
-                <Button type="button" variant="outline" size="sm" asChild>
-                  <Link to="/docs/rag">Document RAG</Link>
+                <Button type="button" variant="secondary" size="sm" asChild>
+                  <Link to="/documents">Documents</Link>
+                </Button>
+                <Button type="button" variant="secondary" size="sm" asChild>
+                  <Link to="/marketplace">MarketPlace</Link>
                 </Button>
                 <Button type="button" variant="outline" size="sm" onClick={logout}>
                   Sign out
@@ -89,16 +92,19 @@ export function HomePage() {
                   <Link to="/register">Register</Link>
                 </Button>
                 <Button type="button" variant="ghost" size="sm" asChild>
-                  <Link to="/chat">Skill chat</Link>
+                  <Link to="/chat">Chat</Link>
                 </Button>
                 <Button type="button" variant="ghost" size="sm" asChild>
                   <Link to="/nodes/build">Nodes</Link>
                 </Button>
                 <Button type="button" variant="ghost" size="sm" asChild>
-                  <Link to="/skills/build">Skills</Link>
+                  <Link to="/skills">Skills</Link>
                 </Button>
                 <Button type="button" variant="ghost" size="sm" asChild>
-                  <Link to="/docs/rag">Document RAG</Link>
+                  <Link to="/documents">Documents</Link>
+                </Button>
+                <Button type="button" variant="ghost" size="sm" asChild>
+                  <Link to="/marketplace">MarketPlace</Link>
                 </Button>
               </>
             )}

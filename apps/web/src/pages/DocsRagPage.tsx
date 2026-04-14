@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeftIcon, FileUpIcon, SearchIcon } from "lucide-react";
+import { FileUpIcon, SearchIcon } from "lucide-react";
 
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -109,12 +109,6 @@ export function DocsRagPage() {
       <div className="flex w-full max-w-2xl flex-col gap-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-1">
-            <Button type="button" variant="ghost" size="sm" className="w-fit px-0" asChild>
-              <Link to="/" className="gap-1.5 text-muted-foreground">
-                <ArrowLeftIcon className="size-4" />
-                Home
-              </Link>
-            </Button>
             <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">
               Document RAG (test)
             </h1>

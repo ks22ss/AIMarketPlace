@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeftIcon, ChevronDownIcon, ChevronUpIcon, Loader2Icon, Trash2Icon } from "lucide-react";
+import { ChevronDownIcon, ChevronUpIcon, Loader2Icon, Trash2Icon } from "lucide-react";
 
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -111,12 +111,6 @@ export function SkillBuilderPage() {
   return (
     <main className="flex min-h-svh flex-col items-center px-4 py-10">
       <div className="flex w-full max-w-2xl flex-col gap-4">
-        <Button type="button" variant="ghost" size="sm" className="w-fit px-0" asChild>
-          <Link to="/" className="gap-1.5 text-muted-foreground">
-            <ArrowLeftIcon className="size-4" />
-            Home
-          </Link>
-        </Button>
         <div>
           <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Skill builder</h1>
           <p className="text-sm text-muted-foreground">
