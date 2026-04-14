@@ -9,18 +9,20 @@ import {
   skillInstallBodySchema,
   type SkillInstallResponse,
   type SkillsListResponse,
+  type SkillUninstallResponse,
 } from "../../contracts/public-api.js";
 import { requireAuth } from "../auth/auth.middleware.js";
 import { effectiveOrgId, userMatchesAllowLists } from "../nodes/access.js";
 import { isSystemNodeName } from "../../lib/agent/runtime.js";
 import { asyncHandler } from "../../lib/async-handler.js";
+import {
+  findVisibleSkillsForUser,
+  parseStoredSkillNodes,
+  skillVisibleToUser,
+  type SkillVisibilityUser,
+} from "./skill-queries.js";
 
 const SKILL_NODES_MAX = 10;
-
-function parseStoredSkillNodes(value: unknown): string[] {
-  const parsed = z.array(z.string().min(1).max(200)).max(SKILL_NODES_MAX).safeParse(value);
-  return parsed.success ? parsed.data : [];
-}
 
 export function createSkillsRouter(prisma: PrismaClient): Router {
   const router = Router();
@@ -119,30 +121,14 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
       return;
     }
 
-    const user = await prisma.user.findUnique({
-      where: { userId: auth.userId },
-      select: { userId: true, orgId: true, role: true, department: true },
-    });
-    if (!user) {
+    const result = await findVisibleSkillsForUser(prisma, auth.userId);
+    if (!result) {
       response.status(401).json({ error: "User not found" });
       return;
     }
 
-    const org = effectiveOrgId(user);
-    const rows = await prisma.skill.findMany({
-      where: {
-        OR: [{ orgId: org }, { orgId: null, createdBy: user.userId }],
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
-    const accessUser = { role: user.role, department: user.department };
-    const visible = rows.filter((row) =>
-      userMatchesAllowLists(accessUser, row.allowRole, row.allowDepartment),
-    );
-
     const payload: SkillsListResponse = {
-      skills: visible.map((s) => ({
+      skills: result.skills.map((s) => ({
         skill_id: s.skillId,
         name: s.name,
         description: s.description,
@@ -163,7 +149,7 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
     void postCreateSkill(request, response).catch(next);
   });
 
-  router.post("/install", requireAuth, (request, response) => {
+  router.post("/install", requireAuth, asyncHandler(async (request, response) => {
     const parsed = skillInstallBodySchema.safeParse(request.body);
     if (!parsed.success) {
       response.status(400).json({
@@ -173,12 +159,99 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
       return;
     }
 
+    const auth = request.authUser;
+    if (!auth) {
+      response.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { userId: auth.userId },
+      select: { userId: true, orgId: true, role: true, department: true },
+    });
+    if (!user) {
+      response.status(401).json({ error: "User not found" });
+      return;
+    }
+
+    const visibilityUser: SkillVisibilityUser = {
+      userId: user.userId,
+      orgId: user.orgId,
+      role: user.role,
+      department: user.department,
+    };
+
+    const skill = await prisma.skill.findUnique({
+      where: { skillId: parsed.data.skill_id },
+    });
+    if (!skill) {
+      response.status(404).json({ error: "Skill not found" });
+      return;
+    }
+
+    if (!skillVisibleToUser(skill, visibilityUser)) {
+      response.status(403).json({ error: "Forbidden", detail: "You cannot install this skill." });
+      return;
+    }
+
     const payload: SkillInstallResponse = {
       installed: true,
-      skill_id: parsed.data.skill_id,
+      skill_id: skill.skillId,
     };
-    response.status(201).json(payload);
-  });
+
+    try {
+      await prisma.userSkill.create({
+        data: {
+          userId: auth.userId,
+          skillId: skill.skillId,
+        },
+      });
+      response.status(201).json(payload);
+    } catch (error: unknown) {
+      const code = typeof error === "object" && error && "code" in error ? String((error as { code: string }).code) : "";
+      if (code === "P2002") {
+        response.status(200).json(payload);
+        return;
+      }
+      throw error;
+    }
+  }));
+
+  router.delete(
+    "/install/:skillId",
+    requireAuth,
+    asyncHandler(async (request, response) => {
+      const parsedId = z.string().uuid().safeParse(request.params.skillId);
+      if (!parsedId.success) {
+        response.status(400).json({ error: "Invalid skill id" });
+        return;
+      }
+
+      const auth = request.authUser;
+      if (!auth) {
+        response.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      const deleted = await prisma.userSkill.deleteMany({
+        where: {
+          userId: auth.userId,
+          skillId: parsedId.data,
+        },
+      });
+
+      if (deleted.count === 0) {
+        response.status(404).json({ error: "Install not found" });
+        return;
+      }
+
+      const body: SkillUninstallResponse = {
+        uninstalled: true,
+        skill_id: parsedId.data,
+      };
+      response.json(body);
+    }),
+  );
 
   return router;
 }

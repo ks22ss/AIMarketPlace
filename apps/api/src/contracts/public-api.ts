@@ -72,6 +72,18 @@ export type SkillsListResponse = {
   skills: SkillSummaryDto[];
 };
 
+/** GET /api/marketplace/skills */
+export type MarketplaceSkillSummaryDto = SkillSummaryDto & {
+  installed: boolean;
+};
+
+export type MarketplaceSkillsListResponse = {
+  skills: MarketplaceSkillSummaryDto[];
+  page: number;
+  limit: number;
+  total: number;
+};
+
 /** POST /api/skills/install */
 export const skillInstallBodySchema = z.object({
   skill_id: z.string().uuid(),
@@ -81,6 +93,12 @@ export type SkillInstallBody = z.infer<typeof skillInstallBodySchema>;
 
 export type SkillInstallResponse = {
   installed: true;
+  skill_id: string;
+};
+
+/** DELETE /api/skills/install/:skillId */
+export type SkillUninstallResponse = {
+  uninstalled: true;
   skill_id: string;
 };
 
