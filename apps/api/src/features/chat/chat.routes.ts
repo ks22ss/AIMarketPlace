@@ -12,7 +12,11 @@ import {
 import { requireAuth } from "../auth/auth.middleware.js";
 import { effectiveOrgId, userMatchesAllowLists } from "../nodes/access.js";
 import type { DocumentPipeline } from "../docs/document.pipeline.js";
-import { runSkill } from "../../lib/agent/runtime.js";
+import {
+  buildSkillExecutionOrder,
+  isSystemNodeName,
+  runSkill,
+} from "../../lib/agent/runtime.js";
 import { normalizeUserRoleSlug } from "../../lib/user-roles.js";
 
 export type ChatRouterDeps = {
@@ -143,6 +147,17 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         return;
       }
 
+      const executionOrder = buildSkillExecutionOrder(deps.pipeline, nodeNames);
+      const promptSteps = executionOrder.filter((name) => !isSystemNodeName(name));
+      if (promptSteps.length === 0) {
+        response.status(400).json({
+          error: "Skill has no prompt steps",
+          detail:
+            "Add at least one node after retrieval (e.g. summarize) so the model can produce a reply. Raw document excerpts are never returned to the client.",
+        });
+        return;
+      }
+
       const traceId = randomUUID();
 
       const finalState = await runSkill(
@@ -161,11 +176,11 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         },
       );
 
+      // Never return `context` (raw RAG chunks) to the client — only the final LLM reply.
       const reply =
-        finalState.output ??
-        (typeof finalState.context === "string" && finalState.context.length > 0
-          ? finalState.context
-          : "(No output)");
+        typeof finalState.output === "string" && finalState.output.trim().length > 0
+          ? finalState.output.trim()
+          : "(No output)";
 
       const payload: ChatPostResponse = {
         reply,
