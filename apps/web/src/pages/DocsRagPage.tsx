@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { FileUpIcon, Loader2Icon, SearchIcon, Trash2Icon } from "lucide-react";
+import { Link } from "react-router-dom";
+import { FileUpIcon, Loader2Icon, Trash2Icon } from "lucide-react";
 
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -13,19 +14,14 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { DocumentSummaryDto, DocsQueryChunk } from "@/lib/docsClient";
+import type { DocumentSummaryDto } from "@/lib/docsClient";
 import {
   deleteDocument,
   ingestDocument,
   listDocuments,
   presignDocument,
   putFileToPresignedUrl,
-  queryDocumentContext,
 } from "@/lib/docsClient";
-import { cn } from "@/lib/utils";
-
-const textareaClass =
-  "min-h-[100px] w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30";
 
 export function DocsRagPage() {
   const { accessToken, authLoading } = useAuth();
@@ -40,11 +36,6 @@ export function DocsRagPage() {
   const [documentsError, setDocumentsError] = useState<string | null>(null);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  const [queryText, setQueryText] = useState("");
-  const [queryBusy, setQueryBusy] = useState(false);
-  const [queryError, setQueryError] = useState<string | null>(null);
-  const [chunks, setChunks] = useState<DocsQueryChunk[]>([]);
 
   const refreshDocuments = useCallback(async () => {
     if (!accessToken) {
@@ -75,7 +66,6 @@ export function DocsRagPage() {
     setUploadBusy(true);
     setUploadError(null);
     setUploadStatus(null);
-    setChunks([]);
     setIndexedDocumentId(null);
     setChunkCount(null);
 
@@ -121,7 +111,6 @@ export function DocsRagPage() {
       setDocumentsError(null);
       try {
         await deleteDocument(accessToken, documentId);
-        setChunks((prev) => prev.filter((c) => c.doc_id !== documentId));
         await refreshDocuments();
       } catch (error: unknown) {
         setDocumentsError(error instanceof Error ? error.message : "Delete failed");
@@ -132,33 +121,6 @@ export function DocsRagPage() {
     [accessToken, refreshDocuments],
   );
 
-  const runQuery = useCallback(async () => {
-    if (!accessToken) {
-      return;
-    }
-    const trimmed = queryText.trim();
-    if (!trimmed) {
-      setQueryError("Enter a question.");
-      return;
-    }
-
-    setQueryBusy(true);
-    setQueryError(null);
-    setChunks([]);
-
-    try {
-      const result = await queryDocumentContext(accessToken, {
-        query: trimmed,
-        limit: 8,
-      });
-      setChunks(result.chunks);
-    } catch (error: unknown) {
-      setQueryError(error instanceof Error ? error.message : "Query failed");
-    } finally {
-      setQueryBusy(false);
-    }
-  }, [accessToken, queryText]);
-
   return (
     <main className="flex min-h-full flex-1 flex-col items-center px-4 py-10">
       <div className="flex w-full max-w-2xl flex-col gap-6">
@@ -168,7 +130,12 @@ export function DocsRagPage() {
               Document RAG (test)
             </h1>
             <p className="text-sm text-muted-foreground">
-              Upload and index files, manage stored documents (Postgres + S3 + Weaviate), then run a vector query.
+              Upload and index files and manage stored documents (Postgres + S3 + Weaviate). Ask questions over your
+              indexed content in{" "}
+              <Link to="/chat" className="font-medium text-primary underline-offset-4 hover:underline">
+                Chat
+              </Link>
+              .
             </p>
           </div>
         </div>
@@ -183,7 +150,7 @@ export function DocsRagPage() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <FileUpIcon className="size-5 opacity-80" />
-                  1. Upload &amp; index
+                  Upload &amp; index
                 </CardTitle>
                 <CardDescription>
                   Uses <code className="rounded bg-muted px-1 py-0.5 text-xs">POST /api/docs/presign</code>,{" "}
@@ -241,7 +208,7 @@ export function DocsRagPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>2. Your documents</CardTitle>
+                <CardTitle>Your documents</CardTitle>
                 <CardDescription>
                   <code className="rounded bg-muted px-1 py-0.5 text-xs">GET /api/docs</code> — Postgres row, S3 object
                   key, ingest status, and whether chunks exist in Weaviate. Delete removes the row and, when the
@@ -272,16 +239,15 @@ export function DocsRagPage() {
                       >
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                           <div className="min-w-0 flex-1 space-y-1">
-                            <div className="font-medium text-foreground">
-                              {doc.file_name ?? "Untitled"}{" "}
-                              <span className="font-normal text-muted-foreground">
-                                ·{" "}
-                                {doc.weaviate_indexed ? (
-                                  <span className="text-emerald-700 dark:text-emerald-400">Weaviate indexed</span>
-                                ) : (
-                                  <span>Weaviate: not indexed</span>
-                                )}
-                              </span>
+                            <div className="font-medium text-foreground break-words wrap-break-word">
+                              {doc.file_name ?? "Untitled"}
+                            </div>
+                            <div className="text-xs font-normal text-muted-foreground">
+                              {doc.weaviate_indexed ? (
+                                <span className="text-emerald-700 dark:text-emerald-400">Weaviate indexed</span>
+                              ) : (
+                                <span>Weaviate: not indexed</span>
+                              )}
                             </div>
                             <div className="text-xs text-muted-foreground">
                               <span className="font-medium text-foreground/80">Postgres</span>{" "}
@@ -328,73 +294,6 @@ export function DocsRagPage() {
                 </Button>
               </CardFooter>
             </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <SearchIcon className="size-5 opacity-80" />
-                  3. Ask a question
-                </CardTitle>
-                <CardDescription>
-                  <code className="rounded bg-muted px-1 py-0.5 text-xs">POST /api/docs/query</code> — nearest chunks
-                  for your account.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-4">
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="rag-query">Question</Label>
-                  <textarea
-                    id="rag-query"
-                    className={cn(textareaClass)}
-                    placeholder="What does the document say about…?"
-                    value={queryText}
-                    disabled={queryBusy}
-                    onChange={(event) => setQueryText(event.target.value)}
-                  />
-                </div>
-                {queryError ? (
-                  <p className="text-sm text-destructive" role="alert">
-                    {queryError}
-                  </p>
-                ) : null}
-                {chunks.length > 0 ? (
-                  <div className="flex flex-col gap-3">
-                    <p className="text-sm font-medium text-foreground">Retrieved context</p>
-                    <ol className="flex list-decimal flex-col gap-4 pl-4 text-sm">
-                      {chunks.map((chunk, index) => (
-                        <li
-                          key={`${chunk.doc_id}-${chunk.chunk_index}-${index}`}
-                          className="marker:text-muted-foreground"
-                        >
-                          <div className="mb-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                            <span>
-                              doc <code className="rounded bg-muted px-1">{chunk.doc_id}</code>
-                            </span>
-                            <span>chunk #{chunk.chunk_index}</span>
-                            <span>score {chunk.score.toFixed(4)}</span>
-                          </div>
-                          <pre className="whitespace-pre-wrap rounded-lg border bg-muted/40 p-3 text-xs text-foreground">
-                            {chunk.text}
-                          </pre>
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-                ) : null}
-              </CardContent>
-              <CardFooter className="border-t bg-transparent">
-                <Button type="button" onClick={() => void runQuery()} disabled={queryBusy}>
-                  {queryBusy ? "Searching…" : "Retrieve context"}
-                </Button>
-              </CardFooter>
-            </Card>
-
-            <p className="text-center text-xs text-muted-foreground">
-              API:{" "}
-              <code className="rounded bg-muted px-1 py-0.5">
-                {import.meta.env.VITE_API_URL?.trim() || "same-origin /api (Vite dev proxy → http://localhost:3001)"}
-              </code>
-            </p>
           </>
         ) : null}
       </div>
