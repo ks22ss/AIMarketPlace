@@ -56,7 +56,7 @@ export function HomePage() {
           <div className="flex flex-col gap-2">
             <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Dashboard</h1>
             <p className="text-sm text-muted-foreground">
-              Session overview and API health. Use the sidebar for Chat, Nodes, Skills, Documents, and MarketPlace.
+              Session overview and API health. Use the sidebar for Chat, Nodes, Skills, Documents, and Marketplace.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

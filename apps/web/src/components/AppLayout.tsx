@@ -57,7 +57,7 @@ export function AppLayout() {
           </NavLink>
           <NavLink to="/marketplace" className={navLinkClass}>
             <ShoppingBag className="size-4 shrink-0 opacity-80" aria-hidden />
-            MarketPlace
+            Marketplace
           </NavLink>
         </nav>
 

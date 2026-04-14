@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useState, type FormEvent } from "react";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { resolveApiUrl } from "@/apiBase";
 import { useAuth } from "@/auth/AuthContext";
@@ -24,12 +24,6 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!authLoading && accessToken) {
-      navigate("/", { replace: true });
-    }
-  }, [accessToken, authLoading, navigate]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -65,6 +59,10 @@ export function LoginPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (!authLoading && accessToken) {
+    return <Navigate to={postAuthDestination(location.state)} replace />;
   }
 
   return (

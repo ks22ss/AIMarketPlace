@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useState, type FormEvent } from "react";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { resolveApiUrl } from "@/apiBase";
 import { useAuth } from "@/auth/AuthContext";
@@ -21,11 +21,6 @@ export function RegisterPage() {
   const location = useLocation();
   const { setAccessToken, accessToken, authLoading } = useAuth();
 
-  useEffect(() => {
-    if (!authLoading && accessToken) {
-      navigate("/", { replace: true });
-    }
-  }, [accessToken, authLoading, navigate]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +60,10 @@ export function RegisterPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (!authLoading && accessToken) {
+    return <Navigate to={postAuthDestination(location.state)} replace />;
   }
 
   return (
