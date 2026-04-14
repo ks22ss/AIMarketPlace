@@ -1,4 +1,5 @@
-import type OpenAI from "openai";
+import type { ChatOpenAI } from "@langchain/openai";
+import { HumanMessage } from "@langchain/core/messages";
 import type { PrismaClient } from "@prisma/client";
 
 import type { DocumentPipeline } from "../../features/docs/document.pipeline.js";
@@ -16,9 +17,7 @@ export type AgentState = {
 export type RunSkillDeps = {
   prisma: PrismaClient;
   pipeline: DocumentPipeline | null;
-  openai: OpenAI;
-  model: string;
-  temperature: number;
+  chatModel: ChatOpenAI;
   /** Same scope as nodes/skills in DB (`org_id` column). */
   orgId: string;
 };
@@ -118,7 +117,7 @@ async function runPromptNode(
     userMessage = `${userMessage}\n\n(No matching indexed document excerpts were found for this question.)`;
   }
 
-  const response = await callLlm(deps.openai, deps.model, deps.temperature, userMessage);
+  const response = await callLlm(deps.chatModel, userMessage);
   return {
     ...state,
     output: response,
@@ -126,19 +125,30 @@ async function runPromptNode(
   };
 }
 
-async function callLlm(
-  openai: OpenAI,
-  model: string,
-  temperature: number,
-  prompt: string,
-): Promise<string> {
-  const completion = await openai.chat.completions.create({
-    model,
-    messages: [{ role: "user", content: prompt }],
-    temperature,
-  });
-  const text = completion.choices[0]?.message?.content;
-  return typeof text === "string" ? text.trim() : "";
+function aiMessageContentToString(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") {
+          return part;
+        }
+        if (part && typeof part === "object" && "text" in part) {
+          const text = (part as { text?: unknown }).text;
+          return typeof text === "string" ? text : "";
+        }
+        return "";
+      })
+      .join("");
+  }
+  return "";
+}
+
+async function callLlm(chatModel: ChatOpenAI, prompt: string): Promise<string> {
+  const message = await chatModel.invoke([new HumanMessage(prompt)]);
+  return aiMessageContentToString(message.content).trim();
 }
 
 export function isSystemNodeName(name: string): boolean {

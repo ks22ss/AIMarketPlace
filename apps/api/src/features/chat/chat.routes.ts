@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import type { ChatOpenAI } from "@langchain/openai";
 import type { PrismaClient } from "@prisma/client";
-import type OpenAI from "openai";
 import { Router } from "express";
 import { z } from "zod";
 
@@ -18,9 +18,7 @@ import { normalizeUserRoleSlug } from "../../lib/user-roles.js";
 export type ChatRouterDeps = {
   prisma: PrismaClient;
   pipeline: DocumentPipeline | null;
-  chatClient: OpenAI | null;
-  model: string;
-  temperature: number;
+  chatModel: ChatOpenAI | null;
 };
 
 const skillNodesSchema = z.array(z.string().min(1).max(200)).max(10);
@@ -63,7 +61,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         return;
       }
 
-      if (!deps.chatClient) {
+      if (!deps.chatModel) {
         response.status(503).json({
           error: "Chat is not configured",
           detail:
@@ -145,9 +143,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         {
           prisma: deps.prisma,
           pipeline: deps.pipeline,
-          openai: deps.chatClient,
-          model: deps.model,
-          temperature: deps.temperature,
+          chatModel: deps.chatModel,
           orgId: org,
         },
         nodeNames,

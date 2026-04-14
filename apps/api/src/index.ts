@@ -4,7 +4,7 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 
 import { createAuthRouter } from "./features/auth/auth.routes.js";
-import { createChatClientFromEnv, getChatModelId, getChatTemperature } from "./features/chat/chat-llm.js";
+import { createChatModelFromEnv } from "./features/chat/chat-llm.js";
 import { createChatRouter } from "./features/chat/chat.routes.js";
 import { createConfigRouter } from "./features/config/config.routes.js";
 import { createDocumentPipelineFromEnv } from "./features/docs/docs.factory.js";
@@ -66,8 +66,8 @@ async function start(): Promise<void> {
 
   app.use("/api/docs", createDocsRouter({ prisma, pipeline: documentPipeline }));
 
-  const chatClient = createChatClientFromEnv();
-  if (chatClient) {
+  const chatModel = createChatModelFromEnv();
+  if (chatModel) {
     console.log("Skill runtime chat: ready (linear nodes + optional retrieve_documents).");
   } else {
     console.warn(
@@ -80,9 +80,7 @@ async function start(): Promise<void> {
     createChatRouter({
       prisma,
       pipeline: documentPipeline,
-      chatClient,
-      model: getChatModelId(),
-      temperature: getChatTemperature(),
+      chatModel,
     }),
   );
 
