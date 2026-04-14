@@ -9,6 +9,7 @@ import { createChatRouter } from "./features/chat/chat.routes.js";
 import { createConfigRouter } from "./features/config/config.routes.js";
 import { createDocumentPipelineFromEnv } from "./features/docs/docs.factory.js";
 import { createDocsRouter } from "./features/docs/docs.routes.js";
+import { createMarketplaceRouter } from "./features/marketplace/marketplace.routes.js";
 import { createNodesRouter } from "./features/nodes/nodes.routes.js";
 import { createSkillsRouter } from "./features/skills/skills.routes.js";
 import { createToolsRouter } from "./features/tools/tools.routes.js";
@@ -41,6 +42,7 @@ app.get("/api/health", (_request, response) => {
 app.use("/api/auth", createAuthRouter(prisma));
 app.use("/api/nodes", createNodesRouter(prisma));
 app.use("/api/skills", createSkillsRouter(prisma));
+app.use("/api/marketplace", createMarketplaceRouter(prisma));
 app.use("/api/tools", createToolsRouter());
 app.use("/api/config", createConfigRouter());
 
