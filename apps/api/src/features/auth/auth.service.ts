@@ -22,6 +22,7 @@ export type AuthSuccess = {
 export type RegisterOutcome =
   | { kind: "success"; data: AuthSuccess }
   | { kind: "email_exists" }
+  | { kind: "invalid_department" }
   | { kind: "internal_error" };
 
 export type LoginOutcome =
@@ -47,8 +48,12 @@ export function createAuthService(repository: AuthRepository) {
     const password = body.password;
 
     try {
+      const departmentOk = await repository.departmentExists(body.department_id);
+      if (!departmentOk) {
+        return { kind: "invalid_department" };
+      }
       const passwordHash = await bcrypt.hash(password, saltRounds);
-      const row: UserPublicRow = await repository.insertMember(email, passwordHash);
+      const row: UserPublicRow = await repository.insertMember(email, passwordHash, body.department_id);
       const user = mapRowToPublicUser(row);
       const accessToken = signAccessToken({ sub: user.userId, email: user.email });
       return { kind: "success", data: { accessToken, user } };

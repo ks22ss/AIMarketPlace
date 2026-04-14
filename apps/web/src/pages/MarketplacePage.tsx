@@ -7,6 +7,7 @@ import {
   CpuIcon,
   LibraryBigIcon,
   Loader2Icon,
+  LockIcon,
   MessageSquareIcon,
   PuzzleIcon,
   SparklesIcon,
@@ -16,20 +17,15 @@ import {
 
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   installSkill,
   listMarketplaceSkills,
   type MarketplaceSkillSummaryDto,
   uninstallSkill,
 } from "@/lib/marketplaceClient";
+import { PLAN_MAX_SKILLS } from "@/lib/planLimits";
+import { cn } from "@/lib/utils";
 
 const PAGE_LIMIT = 16;
 
@@ -170,21 +166,12 @@ export function MarketplacePage() {
 
   return (
     <main className="flex min-h-full flex-1 flex-col gap-6 bg-background px-4 py-10">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Marketplace</h1>
-          <p className="max-w-2xl text-sm text-muted-foreground">
-            Browse skills available to your organization and install them for use in chat.
-          </p>
-        </div>
-        {!authLoading && accessToken ? (
-          <Button asChild className="shrink-0">
-            <Link to="/chat" className="inline-flex items-center gap-2">
-              <MessageSquareIcon className="size-4 shrink-0" aria-hidden />
-              Start Chat
-            </Link>
-          </Button>
-        ) : null}
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-2">
+        <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Marketplace</h1>
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          Browse skills in your organization. Restricted skills show who can use them; install an accessible skill to
+          run it in Chat.
+        </p>
       </div>
 
       {authLoading ? (
@@ -197,6 +184,10 @@ export function MarketplacePage() {
 
       {!authLoading && accessToken ? (
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">
+          <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            Your current plan includes up to <strong className="text-foreground">{PLAN_MAX_SKILLS}</strong> skills.
+          </div>
+
           {listError ? (
             <p className="text-sm text-destructive" role="alert">
               {listError}
@@ -207,7 +198,7 @@ export function MarketplacePage() {
             <CardHeader>
               <CardTitle className="text-lg">Your installed skills</CardTitle>
               <CardDescription>
-                Skills you have installed appear here for quick reference. Choose one in Chat to run a conversation.
+                Start Chat from a row to open the conversation with that skill already selected.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-2">
@@ -224,21 +215,34 @@ export function MarketplacePage() {
               ) : null}
               {!installedLoading && !installedError && installedSkills.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  None yet. Install skills from the catalog below, then use them from Chat.
+                  None yet. Install an accessible skill from the catalog below.
                 </p>
               ) : null}
               {!installedLoading && installedSkills.length > 0 ? (
                 <ul className="divide-y divide-border rounded-lg border border-border">
                   {installedSkills.map((skill) => (
-                    <li key={skill.skill_id} className="flex flex-col gap-0.5 px-3 py-2.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
-                      <span className="text-sm font-medium text-foreground">{skill.name}</span>
-                      {skill.description?.trim() ? (
-                        <span className="line-clamp-2 text-xs text-muted-foreground sm:max-w-md sm:text-right">
-                          {skill.description}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground sm:text-right">No description</span>
-                      )}
+                    <li
+                      key={skill.skill_id}
+                      className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0 flex flex-col gap-0.5">
+                        <span className="text-sm font-medium text-foreground">{skill.name ?? "Skill"}</span>
+                        {skill.description?.trim() ? (
+                          <span className="line-clamp-2 text-xs text-muted-foreground">{skill.description}</span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">No description</span>
+                        )}
+                        <span className="text-xs text-muted-foreground">{skill.access_summary}</span>
+                      </div>
+                      <Button asChild className="shrink-0 sm:w-auto" variant="secondary">
+                        <Link
+                          to={`/chat?skill_id=${encodeURIComponent(skill.skill_id)}`}
+                          className="inline-flex items-center gap-2"
+                        >
+                          <MessageSquareIcon className="size-4 shrink-0" aria-hidden />
+                          Start Chat
+                        </Link>
+                      </Button>
                     </li>
                   ))}
                 </ul>
@@ -253,29 +257,55 @@ export function MarketplacePage() {
             </p>
           ) : null}
 
-          {!listLoading && skills.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No skills match your access for this page.</p>
+          {!listLoading && total === 0 ? (
+            <p className="text-sm text-muted-foreground">No skills in the catalog yet.</p>
+          ) : null}
+
+          {!listLoading && total > 0 && skills.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No skills on this page.</p>
           ) : null}
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {skills.map((skill) => {
-              const Icon = SKILL_CARD_ICONS[iconIndexForSkillId(skill.skill_id)];
+              const locked = !skill.accessible;
+              const DecorIcon = locked
+                ? LockIcon
+                : (SKILL_CARD_ICONS[iconIndexForSkillId(skill.skill_id)] ?? SparklesIcon);
               const busy = mutatingId === skill.skill_id;
+              const title = locked ? "Restricted skill" : (skill.name ?? "Skill");
+              const description = locked
+                ? "You do not have access to this skill's details. Availability is summarized below."
+                : skill.description?.trim()
+                  ? skill.description
+                  : "No description.";
               return (
-                <Card key={skill.skill_id} className="flex h-full flex-col">
+                <Card
+                  key={skill.skill_id}
+                  className={cn("flex h-full flex-col", locked && "border-destructive/35 bg-muted/20")}
+                >
                   <CardHeader className="flex flex-1 flex-col gap-3">
                     <div className="flex items-start justify-between gap-2">
-                      <div className="rounded-lg bg-muted p-2 text-muted-foreground">
-                        <Icon className="size-5 shrink-0" aria-hidden />
+                      <div
+                        className={cn(
+                          "rounded-lg p-2",
+                          locked
+                            ? "border border-destructive/40 bg-destructive/10 text-destructive"
+                            : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        <DecorIcon className="size-5 shrink-0" aria-hidden />
                       </div>
                     </div>
-                    <CardTitle className="line-clamp-2 text-base leading-snug">{skill.name}</CardTitle>
-                    <CardDescription className="line-clamp-3">
-                      {skill.description?.trim() ? skill.description : "No description."}
-                    </CardDescription>
+                    <CardTitle className="line-clamp-2 text-base leading-snug">{title}</CardTitle>
+                    <CardDescription className="line-clamp-3">{description}</CardDescription>
+                    <p className="text-xs leading-snug text-muted-foreground">{skill.access_summary}</p>
                   </CardHeader>
                   <CardFooter className="border-t bg-transparent pt-4">
-                    {skill.installed ? (
+                    {locked ? (
+                      <Button type="button" variant="outline" className="w-full" disabled>
+                        Not available
+                      </Button>
+                    ) : skill.installed ? (
                       <Button
                         type="button"
                         variant="secondary"

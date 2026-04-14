@@ -7,6 +7,7 @@ export type SkillSummaryDto = {
   nodes: string[];
   org_id: string | null;
   created_at: string;
+  access_summary: string;
 };
 
 export type SkillsListResponse = { skills: SkillSummaryDto[] };
@@ -25,8 +26,16 @@ async function readErrorMessage(response: Response): Promise<string> {
   return text || `HTTP ${response.status}`;
 }
 
-export async function listSkills(accessToken: string): Promise<SkillsListResponse> {
-  const response = await fetch(resolveApiUrl("/api/skills"), {
+export async function listSkills(
+  accessToken: string,
+  params: { installed_only?: boolean } = {},
+): Promise<SkillsListResponse> {
+  const qs = new URLSearchParams();
+  if (params.installed_only) {
+    qs.set("installed_only", "true");
+  }
+  const suffix = qs.size > 0 ? `?${qs.toString()}` : "";
+  const response = await fetch(resolveApiUrl(`/api/skills${suffix}`), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!response.ok) {
@@ -41,6 +50,8 @@ export async function createSkill(
     name: string;
     description?: string | null;
     nodes: string[];
+    allow_department_ids?: string[];
+    allow_role_slugs?: ("member" | "admin")[];
   },
 ): Promise<{ skill_id: string; name: string; version: number; nodes: string[] }> {
   const response = await fetch(resolveApiUrl("/api/skills"), {

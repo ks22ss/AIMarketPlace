@@ -1,15 +1,21 @@
 import type { PrismaClient } from "@prisma/client";
-import { Router } from "express";
+import { Router, type Request } from "express";
 
 import type { MarketplaceSkillsListResponse, MarketplaceSkillSummaryDto } from "../../contracts/public-api.js";
+import { accessSummaryForSkill } from "../../lib/access-summary.js";
 import { asyncHandler } from "../../lib/async-handler.js";
 import { requireAuth } from "../auth/auth.middleware.js";
-import { findVisibleSkillsForUser, parseStoredSkillNodes } from "../skills/skill-queries.js";
+import { findOrgSkillsWithAccessForUser, parseStoredSkillNodes } from "../skills/skill-queries.js";
 
 const DEFAULT_LIMIT = 16;
 const MAX_LIMIT = 32;
 /** When `installed_only` is set, allow a larger page size so the reference list can load in one request. */
 const MAX_LIMIT_INSTALLED_ONLY = 100;
+
+function installedOnlyFromQuery(query: Request["query"]): boolean {
+  const raw = query.installed_only;
+  return raw === "true" || raw === "1" || raw === "yes";
+}
 
 export function createMarketplaceRouter(prisma: PrismaClient): Router {
   const router = Router();
@@ -24,11 +30,7 @@ export function createMarketplaceRouter(prisma: PrismaClient): Router {
         return;
       }
 
-      const installedOnlyRaw = request.query.installed_only;
-      const installedOnly =
-        installedOnlyRaw === "true" ||
-        installedOnlyRaw === "1" ||
-        installedOnlyRaw === "yes";
+      const installedOnly = installedOnlyFromQuery(request.query);
 
       const pageRaw = request.query.page;
       const limitRaw = request.query.limit;
@@ -39,7 +41,7 @@ export function createMarketplaceRouter(prisma: PrismaClient): Router {
       const cap = installedOnly ? MAX_LIMIT_INSTALLED_ONLY : MAX_LIMIT;
       const limit = Math.min(cap, Math.max(1, limitUncapped));
 
-      const result = await findVisibleSkillsForUser(prisma, auth.userId);
+      const result = await findOrgSkillsWithAccessForUser(prisma, auth.userId);
       if (!result) {
         response.status(401).json({ error: "User not found" });
         return;
@@ -53,22 +55,45 @@ export function createMarketplaceRouter(prisma: PrismaClient): Router {
 
       let candidates = result.skills;
       if (installedOnly) {
-        candidates = candidates.filter((s) => installedSet.has(s.skillId));
+        candidates = candidates.filter(
+          (row) => row.accessible && installedSet.has(row.skill.skillId),
+        );
       }
 
       const total = candidates.length;
       const skip = (page - 1) * limit;
       const pageRows = candidates.slice(skip, skip + limit);
 
-      const skills: MarketplaceSkillSummaryDto[] = pageRows.map((s) => ({
-        skill_id: s.skillId,
-        name: s.name,
-        description: s.description,
-        nodes: parseStoredSkillNodes(s.skillNodes),
-        org_id: s.orgId,
-        created_at: s.createdAt.toISOString(),
-        installed: installedSet.has(s.skillId),
-      }));
+      const skills: MarketplaceSkillSummaryDto[] = pageRows.map(({ skill: s, accessible }) => {
+        const summary = accessSummaryForSkill(s.allowRole, s.allowDepartment);
+        const installed = accessible && installedSet.has(s.skillId);
+        if (accessible) {
+          return {
+            skill_id: s.skillId,
+            name: s.name,
+            description: s.description,
+            nodes: parseStoredSkillNodes(s.skillNodes),
+            org_id: s.orgId,
+            created_at: s.createdAt.toISOString(),
+            installed,
+            accessible: true,
+            access_summary: summary,
+            detail_hidden: false,
+          };
+        }
+        return {
+          skill_id: s.skillId,
+          name: null,
+          description: null,
+          nodes: [],
+          org_id: s.orgId,
+          created_at: s.createdAt.toISOString(),
+          installed: false,
+          accessible: false,
+          access_summary: summary,
+          detail_hidden: true,
+        };
+      });
 
       const payload: MarketplaceSkillsListResponse = {
         skills,

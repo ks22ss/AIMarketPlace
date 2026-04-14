@@ -66,6 +66,7 @@ export type SkillSummaryDto = {
   nodes: string[];
   org_id: string | null;
   created_at: string;
+  access_summary: string;
 };
 
 export type SkillsListResponse = {
@@ -73,8 +74,18 @@ export type SkillsListResponse = {
 };
 
 /** GET /api/marketplace/skills */
-export type MarketplaceSkillSummaryDto = SkillSummaryDto & {
+export type MarketplaceSkillSummaryDto = {
+  skill_id: string;
+  /** Hidden when `detail_hidden` (locked skill). */
+  name: string | null;
+  description: string | null;
+  nodes: string[];
+  org_id: string | null;
+  created_at: string;
   installed: boolean;
+  accessible: boolean;
+  access_summary: string;
+  detail_hidden: boolean;
 };
 
 export type MarketplaceSkillsListResponse = {
@@ -109,8 +120,10 @@ export const skillCreateBodySchema = z.object({
   /** Ordered node names (1–10), e.g. ["retrieve_documents","summarize"]. */
   nodes: z.array(z.string().min(1).max(200)).min(1).max(10),
   content: z.record(z.string(), z.unknown()).optional(),
-  allow_role: z.array(z.string().min(1).max(64)).max(32).optional(),
-  allow_department: z.array(z.string().min(1).max(128)).max(32).optional(),
+  /** Empty / omitted = all departments in org. */
+  allow_department_ids: z.array(z.string().uuid()).max(32).optional(),
+  /** Empty / omitted = all roles in org. */
+  allow_role_slugs: z.array(z.enum(["member", "admin"])).max(32).optional(),
 });
 
 export type SkillCreateBody = z.infer<typeof skillCreateBodySchema>;

@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { listNodes, type NodeDto } from "@/lib/nodesClient";
+import { listDepartments, listRoles, type DepartmentOption, type RoleOption } from "@/lib/referenceClient";
 import { createSkill, listSkills, type SkillSummaryDto } from "@/lib/skillsClient";
 
 const SYSTEM_OPTION = "retrieve_documents";
@@ -30,6 +31,11 @@ export function SkillBuilderPage() {
   const [pick, setPick] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [roles, setRoles] = useState<RoleOption[]>([]);
+  const [refError, setRefError] = useState<string | null>(null);
+  const [allowDepartmentIds, setAllowDepartmentIds] = useState<string[]>([]);
+  const [allowRoleSlugs, setAllowRoleSlugs] = useState<("member" | "admin")[]>([]);
 
   const options = useMemo(() => {
     const custom = nodes.map((n) => n.name);
@@ -53,6 +59,27 @@ export function SkillBuilderPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [d, r] = await Promise.all([listDepartments(), listRoles()]);
+        setDepartments(d);
+        setRoles(r);
+        setRefError(null);
+      } catch (e: unknown) {
+        setRefError(e instanceof Error ? e.message : "Failed to load reference data");
+      }
+    })();
+  }, []);
+
+  function toggleAllowDepartment(id: string): void {
+    setAllowDepartmentIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function toggleAllowRole(slug: "member" | "admin"): void {
+    setAllowRoleSlugs((prev) => (prev.includes(slug) ? prev.filter((x) => x !== slug) : [...prev, slug]));
+  }
 
   const addStep = useCallback(() => {
     const name = pick.trim();
@@ -95,6 +122,8 @@ export function SkillBuilderPage() {
         name: skillName.trim(),
         description: skillDescription.trim() || null,
         nodes: workflow,
+        ...(allowDepartmentIds.length > 0 ? { allow_department_ids: allowDepartmentIds } : {}),
+        ...(allowRoleSlugs.length > 0 ? { allow_role_slugs: allowRoleSlugs } : {}),
       });
       setSaveMessage(`Created skill "${created.name}" with ${created.nodes.join(" → ")}`);
       setSkillName("");
@@ -106,7 +135,16 @@ export function SkillBuilderPage() {
     } finally {
       setSaving(false);
     }
-  }, [accessToken, refresh, saving, skillDescription, skillName, workflow]);
+  }, [
+    accessToken,
+    allowDepartmentIds,
+    allowRoleSlugs,
+    refresh,
+    saving,
+    skillDescription,
+    skillName,
+    workflow,
+  ]);
 
   return (
     <main className="flex min-h-svh flex-col items-center px-4 py-10">
@@ -140,9 +178,52 @@ export function SkillBuilderPage() {
           <Card>
             <CardHeader>
               <CardTitle>New skill</CardTitle>
-              <CardDescription>{loadError ?? `${options.length - 1} custom nodes available`}</CardDescription>
+              <CardDescription>
+                {loadError ?? `${options.length - 1} custom nodes available`}
+                {refError ? ` · ${refError}` : ""}
+              </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <Label>Who can use this skill (optional)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Leave unchecked for everyone in the organization. Otherwise restrict by department and/or role.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+                    <span className="text-xs font-medium text-foreground">Departments</span>
+                    <div className="flex max-h-40 flex-col gap-2 overflow-y-auto text-sm">
+                      {departments.map((d) => (
+                        <label key={d.id} className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={allowDepartmentIds.includes(d.id)}
+                            onChange={() => toggleAllowDepartment(d.id)}
+                            disabled={saving}
+                          />
+                          <span>{d.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+                    <span className="text-xs font-medium text-foreground">Roles</span>
+                    <div className="flex flex-col gap-2 text-sm">
+                      {roles.map((r) => (
+                        <label key={r.id} className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={allowRoleSlugs.includes(r.slug as "member" | "admin")}
+                            onChange={() => toggleAllowRole(r.slug as "member" | "admin")}
+                            disabled={saving}
+                          />
+                          <span>{r.label ?? r.slug}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="skill-name">Skill name</Label>
                 <Input
@@ -273,6 +354,7 @@ export function SkillBuilderPage() {
                 <div key={s.skill_id} className="rounded-md border border-border px-3 py-2">
                   <div className="font-medium">{s.name}</div>
                   <div className="font-mono text-xs text-muted-foreground">{s.nodes.join(" → ")}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{s.access_summary}</div>
                 </div>
               ))}
             </CardContent>

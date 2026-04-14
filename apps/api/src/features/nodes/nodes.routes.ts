@@ -31,7 +31,12 @@ export function createNodesRouter(prisma: PrismaClient): Router {
 
     const user = await prisma.user.findUnique({
       where: { userId: auth.userId },
-      select: { userId: true, orgId: true, role: true, department: true },
+      select: {
+        userId: true,
+        orgId: true,
+        role: true,
+        department: { select: { name: true } },
+      },
     });
     if (!user) {
       response.status(401).json({ error: "User not found" });
@@ -44,7 +49,7 @@ export function createNodesRouter(prisma: PrismaClient): Router {
       orderBy: { name: "asc" },
     });
 
-    const accessUser = { role: user.role, department: user.department };
+    const accessUser = { role: user.role, department: user.department.name };
     const visible = rows.filter((row) =>
       userMatchesAllowLists(accessUser, row.allowRole, row.allowDepartment),
     );

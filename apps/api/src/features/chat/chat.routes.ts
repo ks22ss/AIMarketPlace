@@ -31,21 +31,19 @@ function parseSkillNodes(value: unknown): string[] {
 
 async function resolveSkillForUser(
   prisma: PrismaClient,
-  params: { userId: string; org: string; skillId?: string },
+  params: { org: string; skillId?: string },
 ) {
   if (params.skillId) {
     return prisma.skill.findFirst({
       where: {
         skillId: params.skillId,
-        OR: [{ orgId: params.org }, { orgId: null, createdBy: params.userId }],
+        orgId: params.org,
       },
     });
   }
 
   return prisma.skill.findFirst({
-    where: {
-      OR: [{ orgId: params.org }, { orgId: null, createdBy: params.userId }],
-    },
+    where: { orgId: params.org },
     orderBy: { createdAt: "desc" },
   });
 }
@@ -81,7 +79,12 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
 
       const user = await deps.prisma.user.findUnique({
         where: { userId: authUser.userId },
-        select: { userId: true, orgId: true, role: true, department: true },
+        select: {
+          userId: true,
+          orgId: true,
+          role: true,
+          department: { select: { name: true } },
+        },
       });
       if (!user) {
         response.status(401).json({ error: "User not found" });
@@ -90,7 +93,6 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
 
       const org = effectiveOrgId(user);
       const skill = await resolveSkillForUser(deps.prisma, {
-        userId: user.userId,
         org,
         skillId: parsed.data.skill_id,
       });
@@ -105,12 +107,25 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
 
       if (
         !userMatchesAllowLists(
-          { role: user.role, department: user.department },
+          { role: user.role, department: user.department.name },
           skill.allowRole,
           skill.allowDepartment,
         )
       ) {
         response.status(403).json({ error: "Forbidden", detail: "You cannot run this skill." });
+        return;
+      }
+
+      const installRow = await deps.prisma.userSkill.findUnique({
+        where: {
+          userId_skillId: { userId: user.userId, skillId: skill.skillId },
+        },
+      });
+      if (!installRow) {
+        response.status(403).json({
+          error: "Forbidden",
+          detail: "Install this skill from the Marketplace before running it in chat.",
+        });
         return;
       }
 

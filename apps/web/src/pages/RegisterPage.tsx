@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { resolveApiUrl } from "@/apiBase";
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { listDepartments, type DepartmentOption } from "@/lib/referenceClient";
 
 export function RegisterPage() {
   const navigate = useNavigate();
@@ -23,8 +24,24 @@ export function RegisterPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [departmentsError, setDepartmentsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const rows = await listDepartments();
+        setDepartments(rows);
+        setDepartmentsError(null);
+      } catch (e: unknown) {
+        setDepartmentsError(e instanceof Error ? e.message : "Failed to load departments");
+        setDepartments([]);
+      }
+    })();
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -35,7 +52,7 @@ export function RegisterPage() {
       const response = await fetch(resolveApiUrl("/api/auth/register"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, department_id: departmentId }),
       });
 
       const data = (await response.json().catch(() => ({}))) as {
@@ -74,7 +91,7 @@ export function RegisterPage() {
             Create account
           </h1>
           <p className="text-sm text-muted-foreground">
-            Register with email and password. You will be signed in automatically.
+            Register with email, password, and your department. You will be signed in automatically.
           </p>
         </div>
 
@@ -88,6 +105,11 @@ export function RegisterPage() {
               {error ? (
                 <p className="text-sm text-destructive" role="alert">
                   {error}
+                </p>
+              ) : null}
+              {departmentsError ? (
+                <p className="text-sm text-destructive" role="alert">
+                  {departmentsError}
                 </p>
               ) : null}
               <div className="flex flex-col gap-2">
@@ -115,9 +137,28 @@ export function RegisterPage() {
                   required
                 />
               </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="register-department">Department</Label>
+                <select
+                  id="register-department"
+                  name="department_id"
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+                  value={departmentId}
+                  onChange={(e) => setDepartmentId(e.target.value)}
+                  required
+                  disabled={departments.length === 0}
+                >
+                  <option value="">Select department…</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </CardContent>
             <CardFooter className="flex flex-col gap-3 border-t bg-transparent">
-              <Button type="submit" className="w-full" disabled={submitting}>
+              <Button type="submit" className="w-full" disabled={submitting || departments.length === 0}>
                 {submitting ? "Creating account…" : "Create account"}
               </Button>
               <p className="text-center text-sm text-muted-foreground">
