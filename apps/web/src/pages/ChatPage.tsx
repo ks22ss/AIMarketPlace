@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { BotIcon, Loader2Icon, SendHorizonalIcon, UserIcon } from "lucide-react";
 
 import { useAuth } from "@/auth/AuthContext";
@@ -35,12 +35,16 @@ function newId(): string {
 
 export function ChatPage() {
   const { accessToken, authLoading } = useAuth();
+  const [searchParams] = useSearchParams();
+  const urlSkillId = searchParams.get("skill_id");
   const [lines, setLines] = useState<ChatLine[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [skills, setSkills] = useState<SkillSummaryDto[]>([]);
   const [skillsError, setSkillsError] = useState<string | null>(null);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+  const [urlSkillWarning, setUrlSkillWarning] = useState<string | null>(null);
   const [selectedSkillId, setSelectedSkillId] = useState<string>("");
   const listEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -49,24 +53,25 @@ export function ChatPage() {
     if (!accessToken) {
       setSkills([]);
       setSelectedSkillId("");
+      setSkillsLoading(false);
       return;
     }
+    setSkillsLoading(true);
     void (async () => {
       try {
-        const res = await listSkills(accessToken);
+        const res = await listSkills(accessToken, { installed_only: true });
         if (!cancelled) {
           setSkills(res.skills);
           setSkillsError(null);
-          setSelectedSkillId((current) => {
-            if (current && res.skills.some((s) => s.skill_id === current)) {
-              return current;
-            }
-            return res.skills[0]?.skill_id ?? "";
-          });
         }
       } catch (e: unknown) {
         if (!cancelled) {
           setSkillsError(e instanceof Error ? e.message : "Failed to load skills");
+          setSkills([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setSkillsLoading(false);
         }
       }
     })();
@@ -76,12 +81,43 @@ export function ChatPage() {
   }, [accessToken]);
 
   useEffect(() => {
+    if (!accessToken || skillsLoading) {
+      return;
+    }
+    if (urlSkillId) {
+      const match = skills.find((s) => s.skill_id === urlSkillId);
+      if (match) {
+        setSelectedSkillId(urlSkillId);
+        setUrlSkillWarning(null);
+        return;
+      }
+      setUrlSkillWarning("That skill is not in your installed list or the link is invalid.");
+      setSelectedSkillId(skills[0]?.skill_id ?? "");
+      return;
+    }
+    setUrlSkillWarning(null);
+    setSelectedSkillId((current) => {
+      if (current && skills.some((s) => s.skill_id === current)) {
+        return current;
+      }
+      return skills[0]?.skill_id ?? "";
+    });
+  }, [accessToken, skills, skillsLoading, urlSkillId]);
+
+  const selectedSkill = useMemo(
+    () => skills.find((s) => s.skill_id === selectedSkillId),
+    [skills, selectedSkillId],
+  );
+
+  const hideSkillPicker = Boolean(urlSkillId && skills.some((s) => s.skill_id === urlSkillId));
+
+  useEffect(() => {
     listEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [lines, sending]);
 
   const send = useCallback(async () => {
     const trimmed = draft.trim();
-    if (!trimmed || !accessToken || sending) {
+    if (!trimmed || !accessToken || sending || !selectedSkillId) {
       return;
     }
 
@@ -127,17 +163,14 @@ export function ChatPage() {
         <div className="flex flex-col gap-1">
           <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Skill chat</h1>
           <p className="text-sm text-muted-foreground">
-            Runs your linear skill via <code className="rounded bg-muted px-1 py-0.5 text-xs">POST /api/chat</code>.
-            When the document pipeline is enabled, the API runs vector search once before your nodes (you can still add{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">retrieve_documents</code> explicitly; duplicates are
-            ignored). Build
-            skills on{" "}
+            Only <strong>installed</strong> skills from the{" "}
+            <Link to="/marketplace" className="text-primary underline-offset-4 hover:underline">
+              Marketplace
+            </Link>{" "}
+            appear here. The API runs your workflow via{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">POST /api/chat</code>. Build workflows on{" "}
             <Link to="/skills" className="text-primary underline-offset-4 hover:underline">
               Skill builder
-            </Link>
-            ; ingest docs on{" "}
-            <Link to="/documents" className="text-primary underline-offset-4 hover:underline">
-              Documents
             </Link>
             .
           </p>
@@ -169,28 +202,73 @@ export function ChatPage() {
               <CardDescription>Messages stay in this browser tab until you refresh.</CardDescription>
             </CardHeader>
             <CardContent className="flex max-h-[min(520px,70vh)] flex-col gap-3 overflow-y-auto px-4 py-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="skill-pick">Skill</Label>
-                <select
-                  id="skill-pick"
-                  className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
-                  value={selectedSkillId}
-                  onChange={(e) => setSelectedSkillId(e.target.value)}
-                  disabled={sending || skills.length === 0}
-                >
-                  {skills.length === 0 ? <option value="">No skills — create one first</option> : null}
-                  {skills.map((s) => (
-                    <option key={s.skill_id} value={s.skill_id}>
-                      {s.name} ({s.nodes.join(" → ")})
-                    </option>
-                  ))}
-                </select>
-                {skillsError ? (
-                  <p className="text-xs text-destructive" role="alert">
-                    {skillsError}
-                  </p>
-                ) : null}
-              </div>
+              {skillsLoading ? (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2Icon className="size-4 animate-spin" aria-hidden />
+                  Loading installed skills…
+                </p>
+              ) : null}
+              {!skillsLoading ? (
+                <div className="flex flex-col gap-2">
+                  {hideSkillPicker ? (
+                    <>
+                      <Label>Skill</Label>
+                      <div className="flex flex-col gap-1 rounded-md border border-input bg-muted/20 px-3 py-2 text-sm">
+                        <span className="font-medium text-foreground">{selectedSkill?.name ?? "Skill"}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {selectedSkill?.access_summary ?? ""}
+                        </span>
+                        <Link
+                          to="/chat"
+                          replace
+                          className="text-xs font-medium text-primary underline-offset-4 hover:underline"
+                        >
+                          Change skill
+                        </Link>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <Label htmlFor="skill-pick">Skill</Label>
+                      <select
+                        id="skill-pick"
+                        className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+                        value={selectedSkillId}
+                        onChange={(e) => setSelectedSkillId(e.target.value)}
+                        disabled={sending || skills.length === 0}
+                      >
+                        {skills.length === 0 ? (
+                          <option value="">No installed skills — use the Marketplace first</option>
+                        ) : null}
+                        {skills.map((s) => (
+                          <option key={s.skill_id} value={s.skill_id}>
+                            {s.name} ({s.nodes.join(" → ")})
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  )}
+                  {skillsError ? (
+                    <p className="text-xs text-destructive" role="alert">
+                      {skillsError}
+                    </p>
+                  ) : null}
+                  {urlSkillWarning ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-400" role="status">
+                      {urlSkillWarning}
+                    </p>
+                  ) : null}
+                  {skills.length === 0 && !skillsLoading ? (
+                    <p className="text-xs text-muted-foreground">
+                      Install a skill from the{" "}
+                      <Link to="/marketplace" className="font-medium text-primary underline-offset-4 hover:underline">
+                        Marketplace
+                      </Link>{" "}
+                      to chat.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               {lines.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Send a message to run the selected skill.</p>
               ) : null}
@@ -245,7 +323,7 @@ export function ChatPage() {
                 </Button>
                 <Button
                   type="button"
-                  disabled={sending || !draft.trim() || skills.length === 0}
+                  disabled={sending || !draft.trim() || skills.length === 0 || !selectedSkillId}
                   onClick={() => void send()}
                 >
                   {sending ? (

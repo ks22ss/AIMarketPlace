@@ -9,6 +9,7 @@ import {
   type RegisterBody,
   type UserPublicRow,
 } from "./auth.dto.js";
+import { isUserRoleSlug } from "../../lib/user-roles.js";
 import type { AuthRepository } from "./auth.repository.js";
 import { signAccessToken } from "./auth.jwt.js";
 
@@ -22,6 +23,7 @@ export type AuthSuccess = {
 export type RegisterOutcome =
   | { kind: "success"; data: AuthSuccess }
   | { kind: "email_exists" }
+  | { kind: "invalid_department" }
   | { kind: "internal_error" };
 
 export type LoginOutcome =
@@ -47,8 +49,12 @@ export function createAuthService(repository: AuthRepository) {
     const password = body.password;
 
     try {
+      const departmentOk = await repository.departmentExists(body.department_id);
+      if (!departmentOk) {
+        return { kind: "invalid_department" };
+      }
       const passwordHash = await bcrypt.hash(password, saltRounds);
-      const row: UserPublicRow = await repository.insertMember(email, passwordHash);
+      const row: UserPublicRow = await repository.insertMember(email, passwordHash, body.department_id);
       const user = mapRowToPublicUser(row);
       const accessToken = signAccessToken({ sub: user.userId, email: user.email });
       return { kind: "success", data: { accessToken, user } };
@@ -73,6 +79,11 @@ export function createAuthService(repository: AuthRepository) {
 
       const passwordMatches = await bcrypt.compare(password, row.password_hash);
       if (!passwordMatches) {
+        return { kind: "invalid_credentials" };
+      }
+
+      if (!isUserRoleSlug(row.role)) {
+        console.error("login: user has unknown role slug", row.user_id, row.role);
         return { kind: "invalid_credentials" };
       }
 

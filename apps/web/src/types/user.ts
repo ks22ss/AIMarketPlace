@@ -2,7 +2,7 @@ export type AuthUser = {
   userId: string;
   email: string;
   role: string;
-  department: string | null;
+  department: string;
   orgId: string | null;
   createdAt: string;
 };

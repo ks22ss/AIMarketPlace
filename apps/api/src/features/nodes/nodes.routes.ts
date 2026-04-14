@@ -11,6 +11,8 @@ import { effectiveOrgId, userMatchesAllowLists } from "./access.js";
 import { isSystemNodeName } from "../../lib/agent/runtime.js";
 import { isValidNodeName } from "../../lib/agent/node-naming.js";
 import { asyncHandler } from "../../lib/async-handler.js";
+import { resolveAllowLists } from "../../lib/resolve-allow-lists.js";
+import { normalizeUserRoleSlug } from "../../lib/user-roles.js";
 
 const PROMPT_TEMPLATE_MAX = 24_000;
 const DESCRIPTION_MAX = 8_000;
@@ -31,7 +33,12 @@ export function createNodesRouter(prisma: PrismaClient): Router {
 
     const user = await prisma.user.findUnique({
       where: { userId: auth.userId },
-      select: { userId: true, orgId: true, role: true, department: true },
+      select: {
+        userId: true,
+        orgId: true,
+        role: true,
+        department: { select: { name: true } },
+      },
     });
     if (!user) {
       response.status(401).json({ error: "User not found" });
@@ -44,7 +51,7 @@ export function createNodesRouter(prisma: PrismaClient): Router {
       orderBy: { name: "asc" },
     });
 
-    const accessUser = { role: user.role, department: user.department };
+    const accessUser = { role: normalizeUserRoleSlug(user.role), department: user.department.name };
     const visible = rows.filter((row) =>
       userMatchesAllowLists(accessUser, row.allowRole, row.allowDepartment),
     );
@@ -120,6 +127,17 @@ export function createNodesRouter(prisma: PrismaClient): Router {
 
     const org = effectiveOrgId(user);
 
+    const resolvedLists = await resolveAllowLists(prisma, {
+      allow_department_ids: parsed.data.allow_department_ids,
+      allow_role_slugs: parsed.data.allow_role_slugs,
+      allow_department: parsed.data.allow_department,
+      allow_role: parsed.data.allow_role,
+    });
+    if (!resolvedLists.ok) {
+      response.status(400).json({ error: resolvedLists.error });
+      return;
+    }
+
     try {
       const created = await prisma.node.create({
         data: {
@@ -128,8 +146,8 @@ export function createNodesRouter(prisma: PrismaClient): Router {
           promptTemplate,
           createdBy: user.userId,
           orgId: org,
-          allowRole: parsed.data.allow_role ?? [],
-          allowDepartment: parsed.data.allow_department ?? [],
+          allowRole: resolvedLists.allowRole,
+          allowDepartment: resolvedLists.allowDepartment,
         },
       });
 

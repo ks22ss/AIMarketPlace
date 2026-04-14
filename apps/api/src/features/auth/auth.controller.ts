@@ -26,6 +26,10 @@ export function createAuthController(service: AuthService) {
       response.status(409).json({ error: "Email is already registered" });
       return;
     }
+    if (outcome.kind === "invalid_department") {
+      response.status(400).json({ error: "Invalid department" });
+      return;
+    }
     response.status(500).json({ error: "Registration failed" });
   }
 

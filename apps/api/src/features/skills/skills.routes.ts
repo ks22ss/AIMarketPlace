@@ -11,6 +11,10 @@ import {
   type SkillsListResponse,
   type SkillUninstallResponse,
 } from "../../contracts/public-api.js";
+import { accessSummaryForSkill } from "../../lib/access-summary.js";
+import { DEFAULT_ORG_ID } from "../../lib/org-config.js";
+import { resolveAllowLists } from "../../lib/resolve-allow-lists.js";
+import { normalizeUserRoleSlug } from "../../lib/user-roles.js";
 import { requireAuth } from "../auth/auth.middleware.js";
 import { effectiveOrgId, userMatchesAllowLists } from "../nodes/access.js";
 import { isSystemNodeName } from "../../lib/agent/runtime.js";
@@ -23,6 +27,11 @@ import {
 } from "./skill-queries.js";
 
 const SKILL_NODES_MAX = 10;
+
+function installedOnlyFromQuery(query: Request["query"]): boolean {
+  const raw = query.installed_only;
+  return raw === "true" || raw === "1" || raw === "yes";
+}
 
 export function createSkillsRouter(prisma: PrismaClient): Router {
   const router = Router();
@@ -45,7 +54,12 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
 
     const user = await prisma.user.findUnique({
       where: { userId: auth.userId },
-      select: { userId: true, orgId: true, role: true, department: true },
+      select: {
+        userId: true,
+        orgId: true,
+        role: true,
+        department: { select: { name: true } },
+      },
     });
     if (!user) {
       response.status(401).json({ error: "User not found" });
@@ -62,7 +76,7 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
     }
 
     const org = effectiveOrgId(user);
-    const accessUser = { role: user.role, department: user.department };
+    const accessUser = { role: normalizeUserRoleSlug(user.role), department: user.department.name };
 
     for (const nodeName of nodes) {
       if (isSystemNodeName(nodeName)) {
@@ -87,6 +101,16 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
       }
     }
 
+    const resolvedLists = await resolveAllowLists(prisma, {
+      allow_department_ids: parsed.data.allow_department_ids,
+      allow_role_slugs: parsed.data.allow_role_slugs,
+    });
+    if (!resolvedLists.ok) {
+      response.status(400).json({ error: resolvedLists.error });
+      return;
+    }
+    const { allowRole, allowDepartment } = resolvedLists;
+
     const description =
       parsed.data.description === undefined || parsed.data.description === null
         ? null
@@ -99,9 +123,9 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
         content: (parsed.data.content ?? {}) as Prisma.InputJsonValue,
         skillNodes: nodes,
         createdBy: user.userId,
-        orgId: org,
-        allowRole: parsed.data.allow_role ?? [],
-        allowDepartment: parsed.data.allow_department ?? [],
+        orgId: DEFAULT_ORG_ID,
+        allowRole,
+        allowDepartment,
       },
     });
 
@@ -127,14 +151,25 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
       return;
     }
 
+    let skills = result.skills;
+    if (installedOnlyFromQuery(request.query)) {
+      const installedRows = await prisma.userSkill.findMany({
+        where: { userId: auth.userId },
+        select: { skillId: true },
+      });
+      const installedSet = new Set(installedRows.map((r) => r.skillId));
+      skills = skills.filter((s) => installedSet.has(s.skillId));
+    }
+
     const payload: SkillsListResponse = {
-      skills: result.skills.map((s) => ({
+      skills: skills.map((s) => ({
         skill_id: s.skillId,
         name: s.name,
         description: s.description,
         nodes: parseStoredSkillNodes(s.skillNodes),
         org_id: s.orgId,
         created_at: s.createdAt.toISOString(),
+        access_summary: accessSummaryForSkill(s.allowRole, s.allowDepartment),
       })),
     };
     response.json(payload);
@@ -167,7 +202,12 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
 
     const user = await prisma.user.findUnique({
       where: { userId: auth.userId },
-      select: { userId: true, orgId: true, role: true, department: true },
+      select: {
+        userId: true,
+        orgId: true,
+        role: true,
+        department: { select: { name: true } },
+      },
     });
     if (!user) {
       response.status(401).json({ error: "User not found" });
@@ -177,8 +217,8 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
     const visibilityUser: SkillVisibilityUser = {
       userId: user.userId,
       orgId: user.orgId,
-      role: user.role,
-      department: user.department,
+      role: normalizeUserRoleSlug(user.role),
+      department: user.department.name,
     };
 
     const skill = await prisma.skill.findUnique({

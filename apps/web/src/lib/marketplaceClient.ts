@@ -1,9 +1,16 @@
 import { resolveApiUrl } from "@/apiBase";
 
-import type { SkillSummaryDto } from "./skillsClient";
-
-export type MarketplaceSkillSummaryDto = SkillSummaryDto & {
+export type MarketplaceSkillSummaryDto = {
+  skill_id: string;
+  name: string | null;
+  description: string | null;
+  nodes: string[];
+  org_id: string | null;
+  created_at: string;
   installed: boolean;
+  accessible: boolean;
+  access_summary: string;
+  detail_hidden: boolean;
 };
 
 export type MarketplaceSkillsListResponse = {

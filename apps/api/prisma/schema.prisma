@@ -7,26 +7,46 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// Spec §4 — users
+/// Single source of truth for user departments (seeded).
+model Department {
+  departmentId String @id @default(uuid()) @map("department_id") @db.Uuid
+  name         String @unique
+  users        User[]
+
+  @@map("departments")
+}
+
+/// Single source of truth for roles (seeded: member, admin).
+model Role {
+  roleId String  @id @default(uuid()) @map("role_id") @db.Uuid
+  slug   String  @unique
+  label  String?
+
+  @@map("roles")
+}
+
+/// Spec section 4 - users
 model User {
   userId       String   @id @default(uuid()) @map("user_id") @db.Uuid
   email        String   @unique
   passwordHash String   @map("password_hash")
+  /// Application role slug; must match a row in `roles` (e.g. member, admin). Not an FK.
   role         String   @default("member")
-  department   String?
+  departmentId String   @map("department_id") @db.Uuid
   orgId        String?  @map("org_id") @db.Uuid
   llmConfig    Json     @default("{}") @map("llm_config")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  skillsCreated Skill[]     @relation("SkillCreatedBy")
-  nodesCreated  Node[]      @relation("NodeCreatedBy")
+  department    Department @relation(fields: [departmentId], references: [departmentId])
+  skillsCreated Skill[]    @relation("SkillCreatedBy")
+  nodesCreated  Node[]     @relation("NodeCreatedBy")
   userSkills    UserSkill[]
   documents     Document[]
 
   @@map("users")
 }
 
-/// Spec §4 — skills
+/// Spec section 4 - skills
 model Skill {
   skillId         String   @id @default(uuid()) @map("skill_id") @db.Uuid
   name            String
@@ -66,7 +86,7 @@ model Node {
   @@map("nodes")
 }
 
-/// Spec §4 — tools
+/// Spec section 4 - tools
 model Tool {
   toolId    String   @id @default(uuid()) @map("tool_id") @db.Uuid
   name      String
@@ -81,7 +101,7 @@ model Tool {
   @@map("tools")
 }
 
-/// Spec §4 — skill_tools (skills ↔ tools)
+/// Spec section 4 - skill_tools (skills to tools)
 model SkillTool {
   skillId String @map("skill_id") @db.Uuid
   toolId  String @map("tool_id") @db.Uuid
@@ -93,7 +113,7 @@ model SkillTool {
   @@map("skill_tools")
 }
 
-/// Spec §4 — documents
+/// Spec section 4 - documents
 model Document {
   docId     String   @id @default(uuid()) @map("doc_id") @db.Uuid
   userId    String?  @map("user_id") @db.Uuid
@@ -107,7 +127,7 @@ model Document {
   @@map("documents")
 }
 
-/// Spec §4 — user_skills (installed skills)
+/// Spec section 4 - user_skills (installed skills)
 model UserSkill {
   userId  String @map("user_id") @db.Uuid
   skillId String @map("skill_id") @db.Uuid
