@@ -40,7 +40,13 @@ export async function listNodes(accessToken: string): Promise<NodesListResponse>
 
 export async function createNode(
   accessToken: string,
-  body: { name: string; description?: string | null; prompt_template: string },
+  body: {
+    name: string;
+    description?: string | null;
+    prompt_template: string;
+    allow_department_ids?: string[];
+    allow_role_slugs?: ("member" | "admin")[];
+  },
 ): Promise<{ node_id: string; name: string }> {
   const response = await fetch(resolveApiUrl("/api/nodes"), {
     method: "POST",

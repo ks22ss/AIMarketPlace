@@ -13,6 +13,8 @@ import {
 } from "../../contracts/public-api.js";
 import { accessSummaryForSkill } from "../../lib/access-summary.js";
 import { DEFAULT_ORG_ID } from "../../lib/org-config.js";
+import { resolveAllowLists } from "../../lib/resolve-allow-lists.js";
+import { normalizeUserRoleSlug } from "../../lib/user-roles.js";
 import { requireAuth } from "../auth/auth.middleware.js";
 import { effectiveOrgId, userMatchesAllowLists } from "../nodes/access.js";
 import { isSystemNodeName } from "../../lib/agent/runtime.js";
@@ -99,33 +101,15 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
       }
     }
 
-    let allowDepartment: string[] = [];
-    const deptIds = parsed.data.allow_department_ids;
-    if (deptIds !== undefined && deptIds.length > 0) {
-      const found = await prisma.department.findMany({
-        where: { departmentId: { in: deptIds } },
-        select: { departmentId: true, name: true },
-      });
-      if (found.length !== deptIds.length) {
-        response.status(400).json({ error: "Invalid allow_department_ids" });
-        return;
-      }
-      allowDepartment = found.map((d) => d.name);
+    const resolvedLists = await resolveAllowLists(prisma, {
+      allow_department_ids: parsed.data.allow_department_ids,
+      allow_role_slugs: parsed.data.allow_role_slugs,
+    });
+    if (!resolvedLists.ok) {
+      response.status(400).json({ error: resolvedLists.error });
+      return;
     }
-
-    let allowRole: string[] = [];
-    const roleSlugs = parsed.data.allow_role_slugs;
-    if (roleSlugs !== undefined && roleSlugs.length > 0) {
-      const found = await prisma.role.findMany({
-        where: { slug: { in: roleSlugs } },
-        select: { slug: true },
-      });
-      if (found.length !== roleSlugs.length) {
-        response.status(400).json({ error: "Invalid allow_role_slugs" });
-        return;
-      }
-      allowRole = found.map((r) => r.slug);
-    }
+    const { allowRole, allowDepartment } = resolvedLists;
 
     const description =
       parsed.data.description === undefined || parsed.data.description === null
@@ -233,7 +217,7 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
     const visibilityUser: SkillVisibilityUser = {
       userId: user.userId,
       orgId: user.orgId,
-      role: user.role,
+      role: normalizeUserRoleSlug(user.role),
       department: user.department.name,
     };
 

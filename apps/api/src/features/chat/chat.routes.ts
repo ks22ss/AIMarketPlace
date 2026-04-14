@@ -13,6 +13,7 @@ import { requireAuth } from "../auth/auth.middleware.js";
 import { effectiveOrgId, userMatchesAllowLists } from "../nodes/access.js";
 import type { DocumentPipeline } from "../docs/document.pipeline.js";
 import { runSkill } from "../../lib/agent/runtime.js";
+import { normalizeUserRoleSlug } from "../../lib/user-roles.js";
 
 export type ChatRouterDeps = {
   prisma: PrismaClient;
@@ -107,7 +108,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
 
       if (
         !userMatchesAllowLists(
-          { role: user.role, department: user.department.name },
+          { role: normalizeUserRoleSlug(user.role), department: user.department.name },
           skill.allowRole,
           skill.allowDepartment,
         )

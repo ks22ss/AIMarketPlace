@@ -9,6 +9,7 @@ import {
   type RegisterBody,
   type UserPublicRow,
 } from "./auth.dto.js";
+import { isUserRoleSlug } from "../../lib/user-roles.js";
 import type { AuthRepository } from "./auth.repository.js";
 import { signAccessToken } from "./auth.jwt.js";
 
@@ -78,6 +79,11 @@ export function createAuthService(repository: AuthRepository) {
 
       const passwordMatches = await bcrypt.compare(password, row.password_hash);
       if (!passwordMatches) {
+        return { kind: "invalid_credentials" };
+      }
+
+      if (!isUserRoleSlug(row.role)) {
+        console.error("login: user has unknown role slug", row.user_id, row.role);
         return { kind: "invalid_credentials" };
       }
 

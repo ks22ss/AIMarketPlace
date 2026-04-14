@@ -300,11 +300,37 @@ export function MarketplacePage() {
                     <CardDescription className="line-clamp-3">{description}</CardDescription>
                     <p className="text-xs leading-snug text-muted-foreground">{skill.access_summary}</p>
                   </CardHeader>
-                  <CardFooter className="border-t bg-transparent pt-4">
+                  <CardFooter className="flex flex-col gap-2 border-t bg-transparent pt-4">
                     {locked ? (
-                      <Button type="button" variant="outline" className="w-full" disabled>
-                        Not available
-                      </Button>
+                      <>
+                        <Button type="button" variant="outline" className="w-full" disabled>
+                          Not available
+                        </Button>
+                        {skill.installed ? (
+                          <>
+                            <p className="text-center text-xs text-muted-foreground">
+                              You still have this skill installed, but it is hidden until your role or department
+                              matches the rules above.
+                            </p>
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              className="w-full"
+                              disabled={busy || listLoading}
+                              onClick={() => void handleUninstall(skill.skill_id)}
+                            >
+                              {busy ? (
+                                <>
+                                  <Loader2Icon className="mr-2 size-4 animate-spin" aria-hidden />
+                                  Working…
+                                </>
+                              ) : (
+                                "Remove from my list"
+                              )}
+                            </Button>
+                          </>
+                        ) : null}
+                      </>
                     ) : skill.installed ? (
                       <Button
                         type="button"

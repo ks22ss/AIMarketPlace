@@ -2,6 +2,7 @@ import type { PrismaClient, Skill } from "@prisma/client";
 import { z } from "zod";
 
 import { DEFAULT_ORG_ID } from "../../lib/org-config.js";
+import { normalizeUserRoleSlug } from "../../lib/user-roles.js";
 import { effectiveOrgId, userMatchesAllowLists, type AccessUser } from "../nodes/access.js";
 
 const SKILL_NODES_MAX = 10;
@@ -24,7 +25,7 @@ export function skillVisibleToUser(skill: Skill, user: SkillVisibilityUser): boo
   if (skill.orgId !== org) {
     return false;
   }
-  const accessUser: AccessUser = { role: user.role, department: user.department };
+  const accessUser: AccessUser = { role: normalizeUserRoleSlug(user.role), department: user.department };
   return userMatchesAllowLists(accessUser, skill.allowRole, skill.allowDepartment);
 }
 

@@ -66,7 +66,7 @@ export function createMarketplaceRouter(prisma: PrismaClient): Router {
 
       const skills: MarketplaceSkillSummaryDto[] = pageRows.map(({ skill: s, accessible }) => {
         const summary = accessSummaryForSkill(s.allowRole, s.allowDepartment);
-        const installed = accessible && installedSet.has(s.skillId);
+        const installed = installedSet.has(s.skillId);
         if (accessible) {
           return {
             skill_id: s.skillId,
@@ -88,7 +88,7 @@ export function createMarketplaceRouter(prisma: PrismaClient): Router {
           nodes: [],
           org_id: s.orgId,
           created_at: s.createdAt.toISOString(),
-          installed: false,
+          installed,
           accessible: false,
           access_summary: summary,
           detail_hidden: true,

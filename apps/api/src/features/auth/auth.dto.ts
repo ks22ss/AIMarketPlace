@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { normalizeUserRoleSlug } from "../../lib/user-roles.js";
+
 export const registerBodySchema = z.object({
   email: z.string().trim().email().max(320),
   password: z.string().min(8).max(128),
@@ -41,7 +43,7 @@ export function mapRowToPublicUser(row: UserPublicRow): PublicUser {
   return {
     userId: row.user_id,
     email: row.email,
-    role: row.role,
+    role: normalizeUserRoleSlug(row.role),
     department: row.department,
     orgId: row.org_id,
     createdAt: row.created_at.toISOString(),

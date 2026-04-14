@@ -14,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createNode, listNodes, type NodeDto } from "@/lib/nodesClient";
+import { listDepartments, listRoles, type DepartmentOption, type RoleOption } from "@/lib/referenceClient";
 
 const textareaClass =
   "min-h-[140px] w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30";
@@ -27,6 +28,11 @@ export function NodeBuilderPage() {
   const [promptTemplate, setPromptTemplate] = useState("Summarize:\n\n{{context}}");
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [roles, setRoles] = useState<RoleOption[]>([]);
+  const [refError, setRefError] = useState<string | null>(null);
+  const [allowDepartmentIds, setAllowDepartmentIds] = useState<string[]>([]);
+  const [allowRoleSlugs, setAllowRoleSlugs] = useState<("member" | "admin")[]>([]);
 
   const refresh = useCallback(async () => {
     if (!accessToken) {
@@ -45,6 +51,27 @@ export function NodeBuilderPage() {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [d, r] = await Promise.all([listDepartments(), listRoles()]);
+        setDepartments(d);
+        setRoles(r);
+        setRefError(null);
+      } catch (e: unknown) {
+        setRefError(e instanceof Error ? e.message : "Failed to load reference data");
+      }
+    })();
+  }, []);
+
+  function toggleAllowDepartment(id: string): void {
+    setAllowDepartmentIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function toggleAllowRole(slug: "member" | "admin"): void {
+    setAllowRoleSlugs((prev) => (prev.includes(slug) ? prev.filter((x) => x !== slug) : [...prev, slug]));
+  }
+
   const submit = useCallback(async () => {
     if (!accessToken || saving) {
       return;
@@ -56,6 +83,8 @@ export function NodeBuilderPage() {
         name: name.trim(),
         description: description.trim() || null,
         prompt_template: promptTemplate,
+        ...(allowDepartmentIds.length > 0 ? { allow_department_ids: allowDepartmentIds } : {}),
+        ...(allowRoleSlugs.length > 0 ? { allow_role_slugs: allowRoleSlugs } : {}),
       });
       setSaveMessage(`Created node "${created.name}" (${created.node_id})`);
       setName("");
@@ -66,7 +95,7 @@ export function NodeBuilderPage() {
     } finally {
       setSaving(false);
     }
-  }, [accessToken, description, name, promptTemplate, refresh, saving]);
+  }, [accessToken, allowDepartmentIds, allowRoleSlugs, description, name, promptTemplate, refresh, saving]);
 
   return (
     <main className="flex min-h-full flex-1 flex-col items-center px-4 py-10">
@@ -87,9 +116,48 @@ export function NodeBuilderPage() {
           <Card>
             <CardHeader>
               <CardTitle>New node</CardTitle>
-              <CardDescription>Reserved system name: retrieve_documents</CardDescription>
+              <CardDescription>
+                Reserved system name: retrieve_documents
+                {refError ? ` · ${refError}` : ""}
+              </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
+              <div className="flex flex-col gap-2">
+                <Label>Who can use this node (optional)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Leave unchecked for everyone in the organization (same as skill allow lists).
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="flex max-h-36 flex-col gap-2 overflow-y-auto rounded-md border border-border p-3 text-sm">
+                    <span className="text-xs font-medium">Departments</span>
+                    {departments.map((d) => (
+                      <label key={d.id} className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={allowDepartmentIds.includes(d.id)}
+                          onChange={() => toggleAllowDepartment(d.id)}
+                          disabled={saving}
+                        />
+                        <span>{d.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="flex flex-col gap-2 rounded-md border border-border p-3 text-sm">
+                    <span className="text-xs font-medium">Roles</span>
+                    {roles.map((r) => (
+                      <label key={r.id} className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={allowRoleSlugs.includes(r.slug as "member" | "admin")}
+                          onChange={() => toggleAllowRole(r.slug as "member" | "admin")}
+                          disabled={saving}
+                        />
+                        <span>{r.label ?? r.slug}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="node-name">Name</Label>
                 <Input

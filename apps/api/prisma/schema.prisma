@@ -30,6 +30,7 @@ model User {
   userId       String   @id @default(uuid()) @map("user_id") @db.Uuid
   email        String   @unique
   passwordHash String   @map("password_hash")
+  /// Application role slug; must match a row in `roles` (e.g. member, admin). Not an FK.
   role         String   @default("member")
   departmentId String   @map("department_id") @db.Uuid
   orgId        String?  @map("org_id") @db.Uuid

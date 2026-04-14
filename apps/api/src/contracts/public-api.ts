@@ -31,8 +31,12 @@ export const nodeCreateBodySchema = z.object({
   name: z.string().min(1).max(120),
   description: z.string().max(8000).optional().nullable(),
   prompt_template: z.string().min(1).max(24_000),
+  /** Prefer with `allow_role_slugs`; validated against `roles.slug` when legacy arrays are used. */
   allow_role: z.array(z.string().min(1).max(64)).max(32).optional(),
+  /** Prefer with `allow_department_ids`; validated against `departments.name` when legacy arrays are used. */
   allow_department: z.array(z.string().min(1).max(128)).max(32).optional(),
+  allow_department_ids: z.array(z.string().uuid()).max(32).optional(),
+  allow_role_slugs: z.array(z.enum(["member", "admin"])).max(32).optional(),
 });
 
 export type NodeCreateBody = z.infer<typeof nodeCreateBodySchema>;
