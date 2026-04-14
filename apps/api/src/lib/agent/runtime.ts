@@ -25,6 +25,22 @@ export type RunSkillDeps = {
 
 const SYSTEM_RETRIEVE = "retrieve_documents";
 
+/**
+ * When the document pipeline is enabled, run exactly one vector search before prompt nodes.
+ * Strips duplicate `retrieve_documents` entries from the skill definition so RAG is not skipped
+ * when builders forget to add the system step.
+ */
+export function buildSkillExecutionOrder(
+  pipeline: DocumentPipeline | null,
+  skillNodeNames: string[],
+): string[] {
+  if (!pipeline) {
+    return skillNodeNames;
+  }
+  const withoutRetrieve = skillNodeNames.filter((name) => name !== SYSTEM_RETRIEVE);
+  return [SYSTEM_RETRIEVE, ...withoutRetrieve];
+}
+
 export function injectVariables(template: string, state: AgentState): string {
   const safe = template.replace(/\x00/g, "");
   return safe
@@ -44,7 +60,9 @@ export async function runSkill(
     orgScope: initial.orgScope,
     intermediate: {},
   };
-  for (const nodeName of skillNodeNames) {
+  const order = buildSkillExecutionOrder(deps.pipeline, skillNodeNames);
+  for (const nodeName of order) {
+    console.log(`Executing node: ${nodeName}`);
     state = await executeNode(deps, nodeName, state);
   }
   return state;
@@ -73,7 +91,7 @@ async function retrieveDocuments(deps: RunSkillDeps, state: AgentState): Promise
   const results = await deps.pipeline.queryContext({
     userId: state.userId,
     query: state.query,
-    limit: 8,
+    limit: 12,
   });
 
   const context = results.map((r) => r.text).join("\n\n");
@@ -89,8 +107,18 @@ async function runPromptNode(
   node: { name: string; promptTemplate: string },
   state: AgentState,
 ): Promise<AgentState> {
-  const prompt = injectVariables(node.promptTemplate, state);
-  const response = await callLlm(deps.openai, deps.model, deps.temperature, prompt);
+  let userMessage = injectVariables(node.promptTemplate, state);
+  const contextBlock = (state.context ?? "").trim();
+  const templateUsesContext = node.promptTemplate.includes("{{context}}");
+  const retrievalRan = Object.prototype.hasOwnProperty.call(state.intermediate, SYSTEM_RETRIEVE);
+
+  if (contextBlock.length > 0 && !templateUsesContext) {
+    userMessage = `${userMessage}\n\n--- Retrieved document excerpts ---\n${contextBlock}`;
+  } else if (contextBlock.length === 0 && retrievalRan) {
+    userMessage = `${userMessage}\n\n(No matching indexed document excerpts were found for this question.)`;
+  }
+
+  const response = await callLlm(deps.openai, deps.model, deps.temperature, userMessage);
   return {
     ...state,
     output: response,

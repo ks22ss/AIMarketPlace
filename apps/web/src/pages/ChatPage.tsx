@@ -133,8 +133,10 @@ export function ChatPage() {
           </Button>
           <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Skill chat</h1>
           <p className="text-sm text-muted-foreground">
-            Runs your linear skill via <code className="rounded bg-muted px-1 py-0.5 text-xs">POST /api/chat</code>{" "}
-            (nodes + optional <code className="rounded bg-muted px-1 py-0.5 text-xs">retrieve_documents</code>). Build
+            Runs your linear skill via <code className="rounded bg-muted px-1 py-0.5 text-xs">POST /api/chat</code>.
+            When the document pipeline is enabled, the API runs vector search once before your nodes (you can still add{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">retrieve_documents</code> explicitly; duplicates are
+            ignored). Build
             skills on{" "}
             <Link to="/skills/build" className="text-primary underline-offset-4 hover:underline">
               Skill builder

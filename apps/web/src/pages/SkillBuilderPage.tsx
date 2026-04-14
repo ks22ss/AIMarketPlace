@@ -120,7 +120,10 @@ export function SkillBuilderPage() {
         <div>
           <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Skill builder</h1>
           <p className="text-sm text-muted-foreground">
-            Compose an ordered list of nodes (max 10). Include <code className="rounded bg-muted px-1 text-xs">retrieve_documents</code> for RAG when your document pipeline is enabled.
+            Compose an ordered list of nodes (max 10). With the document pipeline enabled, chat runs retrieval
+            automatically before these steps; you may still add{" "}
+            <code className="rounded bg-muted px-1 text-xs">retrieve_documents</code> for clarity (it will not run
+            twice).
           </p>
         </div>
 

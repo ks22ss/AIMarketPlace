@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import type { DocumentPipeline } from "../../features/docs/document.pipeline.js";
 import { isValidNodeName } from "./node-naming.js";
-import { injectVariables, type AgentState } from "./runtime.js";
+import { buildSkillExecutionOrder, injectVariables, type AgentState } from "./runtime.js";
 
 function baseState(overrides: Partial<AgentState> = {}): AgentState {
   return {
@@ -24,6 +25,29 @@ describe("isValidNodeName", () => {
     expect(isValidNodeName("BadCase")).toBe(false);
     expect(isValidNodeName("no spaces")).toBe(false);
     expect(isValidNodeName("")).toBe(false);
+  });
+});
+
+describe("buildSkillExecutionOrder", () => {
+  it("returns original order when pipeline is unavailable", () => {
+    expect(buildSkillExecutionOrder(null, ["summarize"])).toEqual(["summarize"]);
+    expect(buildSkillExecutionOrder(null, ["retrieve_documents", "summarize"])).toEqual([
+      "retrieve_documents",
+      "summarize",
+    ]);
+  });
+
+  it("prepends a single retrieve step and removes duplicates when pipeline exists", () => {
+    const pipeline = {} as DocumentPipeline;
+    expect(buildSkillExecutionOrder(pipeline, ["summarize"])).toEqual(["retrieve_documents", "summarize"]);
+    expect(buildSkillExecutionOrder(pipeline, ["retrieve_documents", "summarize"])).toEqual([
+      "retrieve_documents",
+      "summarize",
+    ]);
+    expect(buildSkillExecutionOrder(pipeline, ["summarize", "retrieve_documents"])).toEqual([
+      "retrieve_documents",
+      "summarize",
+    ]);
   });
 });
 
