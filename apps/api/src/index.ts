@@ -85,6 +85,11 @@ async function start(): Promise<void> {
   app.use(
     (error: unknown, _request: Request, response: Response, _next: NextFunction) => {
       console.error(error);
+      const isProduction = process.env.NODE_ENV === "production";
+      if (isProduction) {
+        response.status(500).json({ error: "Internal server error" });
+        return;
+      }
       const detail = error instanceof Error ? error.message : String(error);
       response.status(500).json({ error: "Internal server error", detail });
     },

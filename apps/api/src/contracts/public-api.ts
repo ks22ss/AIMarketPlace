@@ -26,7 +26,7 @@ export type ChatPostResponse = {
   traceId: string;
 };
 
-/** GET /api/nodes */
+/** POST /api/nodes — request body schema for create. */
 export const nodeCreateBodySchema = z.object({
   name: z.string().min(1).max(120),
   description: z.string().max(8000).optional().nullable(),

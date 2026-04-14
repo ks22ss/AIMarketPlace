@@ -10,6 +10,7 @@ import { requireAuth } from "../auth/auth.middleware.js";
 import { effectiveOrgId, userMatchesAllowLists } from "./access.js";
 import { isSystemNodeName } from "../../lib/agent/runtime.js";
 import { isValidNodeName } from "../../lib/agent/node-naming.js";
+import { asyncHandler } from "../../lib/async-handler.js";
 
 const PROMPT_TEMPLATE_MAX = 24_000;
 const DESCRIPTION_MAX = 8_000;
@@ -21,7 +22,7 @@ function sanitizePromptTemplate(raw: string): string {
 export function createNodesRouter(prisma: PrismaClient): Router {
   const router = Router();
 
-  router.get("/", requireAuth, async (request, response) => {
+  router.get("/", requireAuth, asyncHandler(async (request, response) => {
     const auth = request.authUser;
     if (!auth) {
       response.status(401).json({ error: "Unauthorized" });
@@ -62,9 +63,9 @@ export function createNodesRouter(prisma: PrismaClient): Router {
       })),
     };
     response.json(payload);
-  });
+  }));
 
-  router.post("/", requireAuth, async (request, response) => {
+  router.post("/", requireAuth, asyncHandler(async (request, response) => {
     const parsed = nodeCreateBodySchema.safeParse(request.body);
     if (!parsed.success) {
       response.status(400).json({
@@ -145,7 +146,7 @@ export function createNodesRouter(prisma: PrismaClient): Router {
       }
       throw error;
     }
-  });
+  }));
 
   return router;
 }

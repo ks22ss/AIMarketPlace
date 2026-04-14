@@ -13,6 +13,7 @@ import {
 import { requireAuth } from "../auth/auth.middleware.js";
 import { effectiveOrgId, userMatchesAllowLists } from "../nodes/access.js";
 import { isSystemNodeName } from "../../lib/agent/runtime.js";
+import { asyncHandler } from "../../lib/async-handler.js";
 
 const SKILL_NODES_MAX = 10;
 
@@ -111,7 +112,7 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
     response.status(201).json(payload);
   }
 
-  router.get("/", requireAuth, async (request, response) => {
+  router.get("/", requireAuth, asyncHandler(async (request, response) => {
     const auth = request.authUser;
     if (!auth) {
       response.status(401).json({ error: "Unauthorized" });
@@ -151,7 +152,7 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
       })),
     };
     response.json(payload);
-  });
+  }));
 
   router.post("/", requireAuth, (request, response, next) => {
     void postCreateSkill(request, response).catch(next);

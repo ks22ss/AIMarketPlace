@@ -288,6 +288,8 @@ List available skills
 
 # 🤖 9. Agent Runtime (LangGraph)
 
+**MVP note:** `POST /api/chat` runs skills as a **linear ordered node chain** (variable injection plus optional `retrieve_documents`), not the LangGraph planner loop sketched below. LangGraph remains in use for document/RAG paths and can replace or augment chat execution later.
+
 ## Flow
 
 ```
