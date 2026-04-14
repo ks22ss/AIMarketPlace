@@ -1,5 +1,6 @@
 import {
   CreateBucketCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
   PutObjectCommand,
@@ -49,6 +50,15 @@ export function createS3Storage(config: S3StorageConfig) {
     return getSignedUrl(client, command, { expiresIn: input.expiresSeconds });
   }
 
+  async function deleteObject(objectKey: string): Promise<void> {
+    await client.send(
+      new DeleteObjectCommand({
+        Bucket: config.bucket,
+        Key: objectKey,
+      }),
+    );
+  }
+
   async function getObjectBuffer(objectKey: string): Promise<{ buffer: Buffer; contentType: string }> {
     const response = await client.send(
       new GetObjectCommand({
@@ -71,6 +81,7 @@ export function createS3Storage(config: S3StorageConfig) {
     bucket: config.bucket,
     ensureBucket,
     presignPutObject,
+    deleteObject,
     getObjectBuffer,
   };
 }

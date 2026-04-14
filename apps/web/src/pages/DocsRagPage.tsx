@@ -1,6 +1,5 @@
-import { useCallback, useState } from "react";
-import { Link } from "react-router-dom";
-import { FileUpIcon, SearchIcon } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { FileUpIcon, Loader2Icon, SearchIcon, Trash2Icon } from "lucide-react";
 
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -14,9 +13,11 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { DocsQueryChunk } from "@/lib/docsClient";
+import type { DocumentSummaryDto, DocsQueryChunk } from "@/lib/docsClient";
 import {
+  deleteDocument,
   ingestDocument,
+  listDocuments,
   presignDocument,
   putFileToPresignedUrl,
   queryDocumentContext,
@@ -35,10 +36,37 @@ export function DocsRagPage() {
   const [indexedDocumentId, setIndexedDocumentId] = useState<string | null>(null);
   const [chunkCount, setChunkCount] = useState<number | null>(null);
 
+  const [documents, setDocuments] = useState<DocumentSummaryDto[]>([]);
+  const [documentsError, setDocumentsError] = useState<string | null>(null);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   const [queryText, setQueryText] = useState("");
   const [queryBusy, setQueryBusy] = useState(false);
   const [queryError, setQueryError] = useState<string | null>(null);
   const [chunks, setChunks] = useState<DocsQueryChunk[]>([]);
+
+  const refreshDocuments = useCallback(async () => {
+    if (!accessToken) {
+      setDocuments([]);
+      return;
+    }
+    setDocumentsLoading(true);
+    setDocumentsError(null);
+    try {
+      const result = await listDocuments(accessToken);
+      setDocuments(result.documents);
+    } catch (error: unknown) {
+      setDocumentsError(error instanceof Error ? error.message : "Failed to load documents");
+      setDocuments([]);
+    } finally {
+      setDocumentsLoading(false);
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    void refreshDocuments();
+  }, [refreshDocuments]);
 
   const runUploadAndIngest = useCallback(async () => {
     if (!accessToken || !file) {
@@ -69,13 +97,40 @@ export function DocsRagPage() {
       setIndexedDocumentId(ingest.documentId);
       setChunkCount(ingest.chunkCount);
       setUploadStatus(`Ready — ${ingest.chunkCount} chunk(s) indexed.`);
+      await refreshDocuments();
     } catch (error: unknown) {
       setUploadError(error instanceof Error ? error.message : "Upload failed");
       setUploadStatus(null);
     } finally {
       setUploadBusy(false);
     }
-  }, [accessToken, file]);
+  }, [accessToken, file, refreshDocuments]);
+
+  const handleDelete = useCallback(
+    async (documentId: string) => {
+      if (!accessToken) {
+        return;
+      }
+      const ok = window.confirm(
+        "Delete this document from the database and remove its S3 object and Weaviate vectors (when the pipeline is enabled)?",
+      );
+      if (!ok) {
+        return;
+      }
+      setDeletingId(documentId);
+      setDocumentsError(null);
+      try {
+        await deleteDocument(accessToken, documentId);
+        setChunks((prev) => prev.filter((c) => c.doc_id !== documentId));
+        await refreshDocuments();
+      } catch (error: unknown) {
+        setDocumentsError(error instanceof Error ? error.message : "Delete failed");
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [accessToken, refreshDocuments],
+  );
 
   const runQuery = useCallback(async () => {
     if (!accessToken) {
@@ -105,7 +160,7 @@ export function DocsRagPage() {
   }, [accessToken, queryText]);
 
   return (
-    <main className="flex min-h-svh flex-col items-center px-4 py-10">
+    <main className="flex min-h-full flex-1 flex-col items-center px-4 py-10">
       <div className="flex w-full max-w-2xl flex-col gap-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-1">
@@ -113,27 +168,13 @@ export function DocsRagPage() {
               Document RAG (test)
             </h1>
             <p className="text-sm text-muted-foreground">
-              Upload a file → ingest on the API → ask a question → see retrieved chunks (no LLM answer yet).
+              Upload and index files, manage stored documents (Postgres + S3 + Weaviate), then run a vector query.
             </p>
           </div>
         </div>
 
         {authLoading ? (
           <p className="text-sm text-muted-foreground">Checking session…</p>
-        ) : null}
-
-        {!authLoading && !accessToken ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Sign in required</CardTitle>
-              <CardDescription>Presign, ingest, and query are authenticated.</CardDescription>
-            </CardHeader>
-            <CardFooter>
-              <Button type="button" asChild>
-                <Link to="/login">Sign in</Link>
-              </Button>
-            </CardFooter>
-          </Card>
         ) : null}
 
         {!authLoading && accessToken ? (
@@ -200,9 +241,99 @@ export function DocsRagPage() {
 
             <Card>
               <CardHeader>
+                <CardTitle>2. Your documents</CardTitle>
+                <CardDescription>
+                  <code className="rounded bg-muted px-1 py-0.5 text-xs">GET /api/docs</code> — Postgres row, S3 object
+                  key, ingest status, and whether chunks exist in Weaviate. Delete removes the row and, when the
+                  pipeline is enabled, the S3 object and vectors.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                {documentsError ? (
+                  <p className="text-sm text-destructive" role="alert">
+                    {documentsError}
+                  </p>
+                ) : null}
+                {documentsLoading ? (
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2Icon className="size-4 animate-spin" aria-hidden />
+                    Loading documents…
+                  </p>
+                ) : null}
+                {!documentsLoading && documents.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No documents yet. Upload one above.</p>
+                ) : null}
+                {!documentsLoading && documents.length > 0 ? (
+                  <ul className="flex flex-col gap-3">
+                    {documents.map((doc) => (
+                      <li
+                        key={doc.document_id}
+                        className="rounded-lg border border-border bg-muted/20 px-3 py-3 text-sm"
+                      >
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="font-medium text-foreground">
+                              {doc.file_name ?? "Untitled"}{" "}
+                              <span className="font-normal text-muted-foreground">
+                                ·{" "}
+                                {doc.weaviate_indexed ? (
+                                  <span className="text-emerald-700 dark:text-emerald-400">Weaviate indexed</span>
+                                ) : (
+                                  <span>Weaviate: not indexed</span>
+                                )}
+                              </span>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              <span className="font-medium text-foreground/80">Postgres</span>{" "}
+                              <code className="rounded bg-muted px-1">{doc.document_id}</code>
+                              <span className="mx-1">·</span>
+                              <span className="font-medium text-foreground/80">Created</span>{" "}
+                              {new Date(doc.created_at).toLocaleString()}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              <span className="font-medium text-foreground/80">S3 key</span>{" "}
+                              <code className="break-all rounded bg-muted px-1">{doc.s3_object_key}</code>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              <span className="font-medium text-foreground/80">Ingest</span>{" "}
+                              {doc.ingest_status ?? "—"}
+                              {doc.chunk_count !== null ? ` · ${doc.chunk_count} chunks` : ""}
+                              {doc.content_type ? ` · ${doc.content_type}` : ""}
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0 gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            disabled={deletingId !== null}
+                            onClick={() => void handleDelete(doc.document_id)}
+                          >
+                            {deletingId === doc.document_id ? (
+                              <Loader2Icon className="size-4 animate-spin" aria-hidden />
+                            ) : (
+                              <Trash2Icon className="size-4" aria-hidden />
+                            )}
+                            Delete
+                          </Button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </CardContent>
+              <CardFooter className="border-t bg-transparent">
+                <Button type="button" variant="secondary" size="sm" onClick={() => void refreshDocuments()}>
+                  Refresh list
+                </Button>
+              </CardFooter>
+            </Card>
+
+            <Card>
+              <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <SearchIcon className="size-5 opacity-80" />
-                  2. Ask a question
+                  3. Ask a question
                 </CardTitle>
                 <CardDescription>
                   <code className="rounded bg-muted px-1 py-0.5 text-xs">POST /api/docs/query</code> — nearest chunks
@@ -231,7 +362,10 @@ export function DocsRagPage() {
                     <p className="text-sm font-medium text-foreground">Retrieved context</p>
                     <ol className="flex list-decimal flex-col gap-4 pl-4 text-sm">
                       {chunks.map((chunk, index) => (
-                        <li key={`${chunk.doc_id}-${chunk.chunk_index}-${index}`} className="marker:text-muted-foreground">
+                        <li
+                          key={`${chunk.doc_id}-${chunk.chunk_index}-${index}`}
+                          className="marker:text-muted-foreground"
+                        >
                           <div className="mb-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
                             <span>
                               doc <code className="rounded bg-muted px-1">{chunk.doc_id}</code>

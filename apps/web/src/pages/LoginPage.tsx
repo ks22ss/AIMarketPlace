@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { resolveApiUrl } from "@/apiBase";
 import { useAuth } from "@/auth/AuthContext";
+import { postAuthDestination } from "@/auth/postAuthRedirect";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -17,11 +18,18 @@ import { Label } from "@/components/ui/label";
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { setAccessToken } = useAuth();
+  const location = useLocation();
+  const { setAccessToken, accessToken, authLoading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!authLoading && accessToken) {
+      navigate("/", { replace: true });
+    }
+  }, [accessToken, authLoading, navigate]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -51,7 +59,7 @@ export function LoginPage() {
       }
 
       setAccessToken(data.accessToken);
-      navigate("/", { replace: true });
+      navigate(postAuthDestination(location.state), { replace: true });
     } catch {
       setError("Network error");
     } finally {
@@ -114,7 +122,11 @@ export function LoginPage() {
               </Button>
               <p className="text-center text-sm text-muted-foreground">
                 No account?{" "}
-                <Link className="text-primary underline-offset-4 hover:underline" to="/register">
+                <Link
+                  className="text-primary underline-offset-4 hover:underline"
+                  to="/register"
+                  state={location.state}
+                >
                   Create one
                 </Link>
               </p>

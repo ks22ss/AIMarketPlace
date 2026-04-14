@@ -24,6 +24,27 @@ export type DocsQueryResponse = {
   chunks: DocsQueryChunk[];
 };
 
+export type DocumentSummaryDto = {
+  document_id: string;
+  created_at: string;
+  s3_object_key: string;
+  file_name: string | null;
+  content_type: string | null;
+  ingest_status: string | null;
+  chunk_count: number | null;
+  weaviate_indexed: boolean;
+};
+
+export type DocumentsListResponse = {
+  documents: DocumentSummaryDto[];
+};
+
+export type DocsDeleteResponse = {
+  deleted: true;
+  document_id: string;
+  storage_cleanup: "full" | "database_only";
+};
+
 async function readErrorMessage(response: Response): Promise<string> {
   const text = await response.text();
   try {
@@ -82,6 +103,32 @@ export async function ingestDocument(accessToken: string, documentId: string): P
     throw new Error(await readErrorMessage(response));
   }
   return response.json() as Promise<DocsIngestResponse>;
+}
+
+export async function listDocuments(accessToken: string): Promise<DocumentsListResponse> {
+  const response = await fetch(resolveApiUrl("/api/docs"), {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  return response.json() as Promise<DocumentsListResponse>;
+}
+
+export async function deleteDocument(accessToken: string, documentId: string): Promise<DocsDeleteResponse> {
+  const response = await fetch(resolveApiUrl(`/api/docs/${encodeURIComponent(documentId)}`), {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  return response.json() as Promise<DocsDeleteResponse>;
 }
 
 export async function queryDocumentContext(

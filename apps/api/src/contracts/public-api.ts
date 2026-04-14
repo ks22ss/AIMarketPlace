@@ -131,6 +131,32 @@ export type ToolRegisterResponse = {
   type: string;
 };
 
+/** GET /api/docs — documents owned by the signed-in user (Postgres + S3 key + ingest metadata). */
+export type DocumentSummaryDto = {
+  document_id: string;
+  created_at: string;
+  /** Stored object key (S3/MinIO). */
+  s3_object_key: string;
+  file_name: string | null;
+  content_type: string | null;
+  ingest_status: string | null;
+  chunk_count: number | null;
+  /** True when ingest completed and chunks were written to Weaviate. */
+  weaviate_indexed: boolean;
+};
+
+export type DocumentsListResponse = {
+  documents: DocumentSummaryDto[];
+};
+
+/** DELETE /api/docs/:documentId */
+export type DocsDeleteResponse = {
+  deleted: true;
+  document_id: string;
+  /** When the document pipeline is off, only the Postgres row was removed. */
+  storage_cleanup: "full" | "database_only";
+};
+
 /** POST /api/docs/presign */
 export const docsPresignBodySchema = z.object({
   fileName: z.string().min(1).max(512),

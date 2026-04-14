@@ -1,14 +1,19 @@
 import type { PrismaClient } from "@prisma/client";
 import { Router } from "express";
+import { z } from "zod";
 
 import {
   docsIngestBodySchema,
+  type DocsDeleteResponse,
   type DocsIngestResponse,
   docsPresignBodySchema,
   type DocsPresignResponse,
   docsQueryBodySchema,
   type DocsQueryResponse,
+  type DocumentsListResponse,
+  type DocumentSummaryDto,
 } from "../../contracts/public-api.js";
+import { asyncHandler } from "../../lib/async-handler.js";
 import { requireAuth } from "../auth/auth.middleware.js";
 import type { DocumentPipeline } from "./document.pipeline.js";
 
@@ -24,6 +29,13 @@ function respondPipelineDisabled(response: import("express").Response): void {
     detail:
       "Set DEEPINFRA_API_KEY (or DEEPINFRA_TOKEN / OPENAI_API_KEY), WEAVIATE_URL, S3_ACCESS_KEY, S3_SECRET_KEY, and S3_BUCKET (see .env.example).",
   });
+}
+
+function readDocMetadata(metadata: unknown): Record<string, unknown> {
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    return metadata as Record<string, unknown>;
+  }
+  return {};
 }
 
 function mapPipelineError(error: unknown, response: import("express").Response): boolean {
@@ -53,6 +65,106 @@ function mapPipelineError(error: unknown, response: import("express").Response):
 
 export function createDocsRouter(deps: DocsRouterDeps): Router {
   const router = Router();
+
+  router.get(
+    "/",
+    requireAuth,
+    asyncHandler(async (request, response) => {
+      const authUser = request.authUser;
+      if (!authUser) {
+        response.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      const rows = await deps.prisma.document.findMany({
+        where: { userId: authUser.userId },
+        orderBy: { createdAt: "desc" },
+      });
+
+      const documents: DocumentSummaryDto[] = rows.map((row) => {
+        const meta = readDocMetadata(row.metadata);
+        const ingestStatus = typeof meta.ingestStatus === "string" ? meta.ingestStatus : null;
+        const fileName = typeof meta.fileName === "string" ? meta.fileName : null;
+        const contentType = typeof meta.contentType === "string" ? meta.contentType : null;
+        const chunkCount = typeof meta.chunkCount === "number" ? meta.chunkCount : null;
+        const weaviateIndexed = ingestStatus === "ready" && typeof chunkCount === "number";
+
+        return {
+          document_id: row.docId,
+          created_at: row.createdAt.toISOString(),
+          s3_object_key: row.s3Url,
+          file_name: fileName,
+          content_type: contentType,
+          ingest_status: ingestStatus,
+          chunk_count: chunkCount,
+          weaviate_indexed: weaviateIndexed,
+        };
+      });
+
+      const payload: DocumentsListResponse = { documents };
+      response.json(payload);
+    }),
+  );
+
+  router.delete(
+    "/:documentId",
+    requireAuth,
+    asyncHandler(async (request, response) => {
+      const parsedId = z.string().uuid().safeParse(request.params.documentId);
+      if (!parsedId.success) {
+        response.status(400).json({ error: "Invalid document id" });
+        return;
+      }
+
+      const authUser = request.authUser;
+      if (!authUser) {
+        response.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      if (deps.pipeline) {
+        try {
+          await deps.pipeline.deleteUserDocument({
+            userId: authUser.userId,
+            documentId: parsedId.data,
+          });
+        } catch (error) {
+          if (mapPipelineError(error, response)) {
+            return;
+          }
+          console.error("docs delete failed", error);
+          response.status(500).json({ error: "Delete failed" });
+          return;
+        }
+        const body: DocsDeleteResponse = {
+          deleted: true,
+          document_id: parsedId.data,
+          storage_cleanup: "full",
+        };
+        response.json(body);
+        return;
+      }
+
+      const row = await deps.prisma.document.findUnique({
+        where: { docId: parsedId.data },
+      });
+      if (!row) {
+        response.status(404).json({ error: "Document not found" });
+        return;
+      }
+      if (!row.userId || row.userId !== authUser.userId) {
+        response.status(403).json({ error: "Forbidden" });
+        return;
+      }
+      await deps.prisma.document.delete({ where: { docId: parsedId.data } });
+      const body: DocsDeleteResponse = {
+        deleted: true,
+        document_id: parsedId.data,
+        storage_cleanup: "database_only",
+      };
+      response.json(body);
+    }),
+  );
 
   router.post("/presign", requireAuth, async (request, response) => {
     const parsed = docsPresignBodySchema.safeParse(request.body);
