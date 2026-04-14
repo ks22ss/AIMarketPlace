@@ -166,7 +166,7 @@ export type ToolRegisterResponse = {
   type: string;
 };
 
-/** GET /api/docs — documents owned by the signed-in user (Postgres + S3 key + ingest metadata). */
+/** GET /api/docs — documents in the signed-in user's department (Postgres + S3 key + ingest metadata). */
 export type DocumentSummaryDto = {
   document_id: string;
   created_at: string;

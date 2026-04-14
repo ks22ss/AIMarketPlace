@@ -81,12 +81,18 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         select: {
           userId: true,
           orgId: true,
+          departmentId: true,
           role: true,
           department: { select: { name: true } },
         },
       });
       if (!user) {
         response.status(401).json({ error: "User not found" });
+        return;
+      }
+
+      if (user.departmentId !== authUser.departmentId) {
+        response.status(401).json({ error: "Unauthorized" });
         return;
       }
 
@@ -150,6 +156,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         {
           query: parsed.data.message,
           userId: user.userId,
+          departmentId: user.departmentId,
           orgScope: org,
         },
       );

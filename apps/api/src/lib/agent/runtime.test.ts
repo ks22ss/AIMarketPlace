@@ -8,6 +8,7 @@ function baseState(overrides: Partial<AgentState> = {}): AgentState {
   return {
     query: "q",
     userId: "u1",
+    departmentId: "b0000001-0000-4000-8000-000000000001",
     orgScope: "o1",
     intermediate: {},
     ...overrides,

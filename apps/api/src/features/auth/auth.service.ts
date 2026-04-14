@@ -56,7 +56,11 @@ export function createAuthService(repository: AuthRepository) {
       const passwordHash = await bcrypt.hash(password, saltRounds);
       const row: UserPublicRow = await repository.insertMember(email, passwordHash, body.department_id);
       const user = mapRowToPublicUser(row);
-      const accessToken = signAccessToken({ sub: user.userId, email: user.email });
+      const accessToken = signAccessToken({
+        sub: user.userId,
+        email: user.email,
+        departmentId: user.departmentId,
+      });
       return { kind: "success", data: { accessToken, user } };
     } catch (error: unknown) {
       if (isUniqueConstraintError(error)) {
@@ -92,10 +96,15 @@ export function createAuthService(repository: AuthRepository) {
         email: row.email,
         role: row.role,
         department: row.department,
+        department_id: row.department_id,
         org_id: row.org_id,
         created_at: row.created_at,
       });
-      const accessToken = signAccessToken({ sub: user.userId, email: user.email });
+      const accessToken = signAccessToken({
+        sub: user.userId,
+        email: user.email,
+        departmentId: user.departmentId,
+      });
       return { kind: "success", data: { accessToken, user } };
     } catch (error) {
       console.error("login error", error);

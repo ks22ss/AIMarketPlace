@@ -50,6 +50,7 @@ export function createDocumentPipeline(deps: DocumentPipelineDeps) {
   async function createPresignedUpload(input: {
     userId: string;
     orgId: string | null;
+    departmentId: string;
     fileName: string;
     contentType: string;
   }): Promise<{ uploadUrl: string; documentId: string; expiresAt: string; objectKey: string }> {
@@ -74,6 +75,7 @@ export function createDocumentPipeline(deps: DocumentPipelineDeps) {
       data: {
         docId: documentId,
         userId: input.userId,
+        departmentId: input.departmentId,
         orgId: input.orgId,
         s3Url: objectKey,
         metadata: {
@@ -87,7 +89,7 @@ export function createDocumentPipeline(deps: DocumentPipelineDeps) {
     return { uploadUrl, documentId, expiresAt, objectKey };
   }
 
-  async function ingestDocument(input: { userId: string; documentId: string }): Promise<{
+  async function ingestDocument(input: { userId: string; departmentId: string; documentId: string }): Promise<{
     documentId: string;
     status: "ready";
     chunkCount: number;
@@ -106,6 +108,10 @@ export function createDocumentPipeline(deps: DocumentPipelineDeps) {
     }
 
     if (ownerId !== input.userId) {
+      throw new Error("Forbidden");
+    }
+
+    if (document.departmentId !== input.departmentId) {
       throw new Error("Forbidden");
     }
 
@@ -134,7 +140,7 @@ export function createDocumentPipeline(deps: DocumentPipelineDeps) {
 
     const orgIdValue = orgKey(document.orgId);
 
-    await deps.weaviate.deleteChunksForDocument(document.docId, ownerId);
+    await deps.weaviate.deleteChunksForDocument(document.docId);
 
     await deps.weaviate.insertChunks(
       chunks.map((chunk, index) => ({
@@ -142,6 +148,7 @@ export function createDocumentPipeline(deps: DocumentPipelineDeps) {
         text: chunk,
         userId: ownerId,
         orgId: orgIdValue,
+        departmentId: document.departmentId,
         documentId: document.docId,
         chunkIndex: index,
       })),
@@ -163,7 +170,7 @@ export function createDocumentPipeline(deps: DocumentPipelineDeps) {
   }
 
   async function queryContext(input: {
-    userId: string;
+    departmentId: string;
     query: string;
     limit: number;
   }): Promise<
@@ -182,7 +189,7 @@ export function createDocumentPipeline(deps: DocumentPipelineDeps) {
 
     const matches = await deps.weaviate.queryNearest({
       vector,
-      userId: input.userId,
+      departmentId: input.departmentId,
       limit: input.limit,
     });
 
@@ -194,7 +201,11 @@ export function createDocumentPipeline(deps: DocumentPipelineDeps) {
     }));
   }
 
-  async function deleteUserDocument(input: { userId: string; documentId: string }): Promise<void> {
+  async function deleteUserDocument(input: {
+    userId: string;
+    departmentId: string;
+    documentId: string;
+  }): Promise<void> {
     const document = await deps.prisma.document.findUnique({
       where: { docId: input.documentId },
     });
@@ -208,7 +219,11 @@ export function createDocumentPipeline(deps: DocumentPipelineDeps) {
       throw new Error("Forbidden");
     }
 
-    await deps.weaviate.deleteChunksForDocument(document.docId, input.userId);
+    if (document.departmentId !== input.departmentId) {
+      throw new Error("Forbidden");
+    }
+
+    await deps.weaviate.deleteChunksForDocument(document.docId);
     await deps.s3.deleteObject(document.s3Url);
     await deps.prisma.document.delete({
       where: { docId: document.docId },

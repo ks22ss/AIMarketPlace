@@ -10,6 +10,7 @@ export type AgentState = {
   output?: string;
   intermediate: Record<string, unknown>;
   userId: string;
+  departmentId: string;
   /** UUID string used for node/skill tenancy (user.orgId ?? user.userId). */
   orgScope: string;
 };
@@ -51,11 +52,12 @@ export function injectVariables(template: string, state: AgentState): string {
 export async function runSkill(
   deps: RunSkillDeps,
   skillNodeNames: string[],
-  initial: Pick<AgentState, "query" | "userId" | "orgScope">,
+  initial: Pick<AgentState, "query" | "userId" | "departmentId" | "orgScope">,
 ): Promise<AgentState> {
   let state: AgentState = {
     query: initial.query,
     userId: initial.userId,
+    departmentId: initial.departmentId,
     orgScope: initial.orgScope,
     intermediate: {},
   };
@@ -88,7 +90,7 @@ async function retrieveDocuments(deps: RunSkillDeps, state: AgentState): Promise
   }
 
   const results = await deps.pipeline.queryContext({
-    userId: state.userId,
+    departmentId: state.departmentId,
     query: state.query,
     limit: 12,
   });

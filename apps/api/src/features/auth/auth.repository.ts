@@ -18,6 +18,7 @@ export function createAuthRepository(prisma: PrismaClient) {
         email: user.email,
         role: user.role,
         department: user.department.name,
+        department_id: user.departmentId,
         org_id: user.orgId,
         created_at: user.createdAt,
         password_hash: user.passwordHash,
@@ -44,6 +45,7 @@ export function createAuthRepository(prisma: PrismaClient) {
         email: user.email,
         role: user.role,
         department: user.department.name,
+        department_id: user.departmentId,
         org_id: user.orgId,
         created_at: user.createdAt,
       };
@@ -62,6 +64,7 @@ export function createAuthRepository(prisma: PrismaClient) {
         email: user.email,
         role: user.role,
         department: user.department.name,
+        department_id: user.departmentId,
         org_id: user.orgId,
         created_at: user.createdAt,
       };
