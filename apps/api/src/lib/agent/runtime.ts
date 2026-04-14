@@ -3,6 +3,7 @@ import { HumanMessage } from "@langchain/core/messages";
 import type { PrismaClient } from "@prisma/client";
 
 import type { DocumentPipeline } from "../../features/docs/document.pipeline.js";
+import { withTimeout } from "../with-timeout.js";
 
 export type AgentState = {
   query: string;
@@ -89,18 +90,31 @@ async function retrieveDocuments(deps: RunSkillDeps, state: AgentState): Promise
     return { ...state, context: "" };
   }
 
-  const results = await deps.pipeline.queryContext({
-    departmentId: state.departmentId,
-    query: state.query,
-    limit: 12,
-  });
+  try {
+    const results = await withTimeout(
+      deps.pipeline.queryContext({
+        departmentId: state.departmentId,
+        query: state.query,
+        limit: 12,
+      }),
+      120_000,
+      "Document retrieval (embedding + Weaviate)",
+    );
 
-  const context = results.map((r) => r.text).join("\n\n");
-  return {
-    ...state,
-    context,
-    intermediate: { ...state.intermediate, [SYSTEM_RETRIEVE]: results },
-  };
+    const context = results.map((r) => r.text).join("\n\n");
+    return {
+      ...state,
+      context,
+      intermediate: { ...state.intermediate, [SYSTEM_RETRIEVE]: results },
+    };
+  } catch (error) {
+    console.error("retrieve_documents failed or timed out", error);
+    return {
+      ...state,
+      context: "",
+      intermediate: { ...state.intermediate, [SYSTEM_RETRIEVE]: [] },
+    };
+  }
 }
 
 async function runPromptNode(
@@ -149,7 +163,11 @@ function aiMessageContentToString(content: unknown): string {
 }
 
 async function callLlm(chatModel: ChatOpenAI, prompt: string): Promise<string> {
-  const message = await chatModel.invoke([new HumanMessage(prompt)]);
+  const message = await withTimeout(
+    chatModel.invoke([new HumanMessage(prompt)]),
+    120_000,
+    "LLM completion",
+  );
   return aiMessageContentToString(message.content).trim();
 }
 

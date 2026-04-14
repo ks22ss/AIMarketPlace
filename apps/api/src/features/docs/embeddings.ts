@@ -41,6 +41,9 @@ export function createEmbeddingClient(config: EmbeddingClientConfig) {
   const client = new OpenAI({
     apiKey: config.apiKey,
     baseURL: config.baseUrl,
+    /** Avoid indefinite hangs when the embedding endpoint is down or misconfigured. */
+    timeout: 60_000,
+    maxRetries: 1,
   });
 
   async function embedTexts(texts: string[]): Promise<number[][]> {

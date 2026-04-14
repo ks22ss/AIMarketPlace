@@ -19,6 +19,8 @@ function clampGetLimit(value: number): number {
 
 export type WeaviateStoreConfig = {
   baseUrl: string;
+  /** Per-request HTTP timeout (ms). Prevents hung chat when Weaviate is unreachable. */
+  requestTimeoutMs?: number;
 };
 
 type WhereFilter =
@@ -34,9 +36,25 @@ type WhereFilter =
 
 export function createWeaviateStore(config: WeaviateStoreConfig) {
   const base = config.baseUrl.replace(/\/+$/, "");
+  const requestTimeoutMs = config.requestTimeoutMs ?? 45_000;
+
+  async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(`Weaviate request timed out after ${Math.round(requestTimeoutMs / 1000)}s (${url})`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   async function requestJson(path: string, init?: RequestInit): Promise<unknown> {
-    const response = await fetch(`${base}${path}`, init);
+    const response = await fetchWithTimeout(`${base}${path}`, init);
     const text = await response.text();
     let body: unknown = null;
     if (text) {
@@ -54,8 +72,8 @@ export function createWeaviateStore(config: WeaviateStoreConfig) {
     return body;
   }
 
-   async function ensureDepartmentIdProperty(): Promise<void> {
-    const existing = await fetch(`${base}/v1/schema/${documentChunkClass}`);
+  async function ensureDepartmentIdProperty(): Promise<void> {
+    const existing = await fetchWithTimeout(`${base}/v1/schema/${documentChunkClass}`);
     if (!existing.ok) {
       return;
     }
@@ -76,7 +94,7 @@ export function createWeaviateStore(config: WeaviateStoreConfig) {
   }
 
   async function ensureDocumentChunkClass(): Promise<void> {
-    const existing = await fetch(`${base}/v1/schema/${documentChunkClass}`);
+    const existing = await fetchWithTimeout(`${base}/v1/schema/${documentChunkClass}`);
     if (existing.ok) {
       await ensureDepartmentIdProperty();
       return;
@@ -109,7 +127,7 @@ export function createWeaviateStore(config: WeaviateStoreConfig) {
       valueText: documentId,
     };
 
-    const response = await fetch(`${base}/v1/batch/objects`, {
+    const response = await fetchWithTimeout(`${base}/v1/batch/objects`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

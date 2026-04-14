@@ -19,26 +19,40 @@ async function readErrorMessage(response: Response): Promise<string> {
   return text || `HTTP ${response.status}`;
 }
 
+const chatFetchTimeoutMs = 180_000;
+
 export async function postChat(
   accessToken: string,
   message: string,
   options?: { skill_id?: string },
 ): Promise<ChatPostResponse> {
-  const response = await fetch(resolveApiUrl("/api/chat"), {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      message,
-      ...(options?.skill_id ? { skill_id: options.skill_id } : {}),
-    }),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), chatFetchTimeoutMs);
+  try {
+    const response = await fetch(resolveApiUrl("/api/chat"), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message,
+        ...(options?.skill_id ? { skill_id: options.skill_id } : {}),
+      }),
+      signal: controller.signal,
+    });
 
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response));
+    }
+
+    return response.json() as Promise<ChatPostResponse>;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Chat request timed out after ${Math.round(chatFetchTimeoutMs / 1000)}s`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
-
-  return response.json() as Promise<ChatPostResponse>;
 }
