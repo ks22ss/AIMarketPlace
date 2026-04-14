@@ -12,11 +12,7 @@ import {
 import { requireAuth } from "../auth/auth.middleware.js";
 import { effectiveOrgId, userMatchesAllowLists } from "../nodes/access.js";
 import type { DocumentPipeline } from "../docs/document.pipeline.js";
-import {
-  buildSkillExecutionOrder,
-  isSystemNodeName,
-  runSkill,
-} from "../../lib/agent/runtime.js";
+import { runSkill } from "../../lib/agent/runtime.js";
 import { normalizeUserRoleSlug } from "../../lib/user-roles.js";
 
 export type ChatRouterDeps = {
@@ -30,25 +26,6 @@ const skillNodesSchema = z.array(z.string().min(1).max(200)).max(10);
 function parseSkillNodes(value: unknown): string[] {
   const parsed = skillNodesSchema.safeParse(value);
   return parsed.success ? parsed.data : [];
-}
-
-async function resolveSkillForUser(
-  prisma: PrismaClient,
-  params: { org: string; skillId?: string },
-) {
-  if (params.skillId) {
-    return prisma.skill.findFirst({
-      where: {
-        skillId: params.skillId,
-        orgId: params.org,
-      },
-    });
-  }
-
-  return prisma.skill.findFirst({
-    where: { orgId: params.org },
-    orderBy: { createdAt: "desc" },
-  });
 }
 
 export function createChatRouter(deps: ChatRouterDeps): Router {
@@ -101,61 +78,50 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
       }
 
       const org = effectiveOrgId(user);
-      const skill = await resolveSkillForUser(deps.prisma, {
-        org,
-        skillId: parsed.data.skill_id,
-      });
 
-      if (!skill) {
-        response.status(404).json({
-          error: "No skill found",
-          detail: "Create a skill in the Skill Builder or pass skill_id.",
+      let nodeNames: string[] = [];
+
+      if (parsed.data.skill_id) {
+        const skill = await deps.prisma.skill.findFirst({
+          where: {
+            skillId: parsed.data.skill_id,
+            orgId: org,
+          },
         });
-        return;
-      }
 
-      if (
-        !userMatchesAllowLists(
-          { role: normalizeUserRoleSlug(user.role), department: user.department.name },
-          skill.allowRole,
-          skill.allowDepartment,
-        )
-      ) {
-        response.status(403).json({ error: "Forbidden", detail: "You cannot run this skill." });
-        return;
-      }
+        if (!skill) {
+          response.status(404).json({
+            error: "Skill not found",
+            detail: "Check skill_id or pick another skill.",
+          });
+          return;
+        }
 
-      const installRow = await deps.prisma.userSkill.findUnique({
-        where: {
-          userId_skillId: { userId: user.userId, skillId: skill.skillId },
-        },
-      });
-      if (!installRow) {
-        response.status(403).json({
-          error: "Forbidden",
-          detail: "Install this skill from the Marketplace before running it in chat.",
+        if (
+          !userMatchesAllowLists(
+            { role: normalizeUserRoleSlug(user.role), department: user.department.name },
+            skill.allowRole,
+            skill.allowDepartment,
+          )
+        ) {
+          response.status(403).json({ error: "Forbidden", detail: "You cannot run this skill." });
+          return;
+        }
+
+        const installRow = await deps.prisma.userSkill.findUnique({
+          where: {
+            userId_skillId: { userId: user.userId, skillId: skill.skillId },
+          },
         });
-        return;
-      }
+        if (!installRow) {
+          response.status(403).json({
+            error: "Forbidden",
+            detail: "Install this skill from the Marketplace before using it in chat.",
+          });
+          return;
+        }
 
-      const nodeNames = parseSkillNodes(skill.skillNodes);
-      if (nodeNames.length === 0) {
-        response.status(400).json({
-          error: "Skill has no nodes",
-          detail: "Update the skill to include at least one workflow step.",
-        });
-        return;
-      }
-
-      const executionOrder = buildSkillExecutionOrder(deps.pipeline, nodeNames);
-      const promptSteps = executionOrder.filter((name) => !isSystemNodeName(name));
-      if (promptSteps.length === 0) {
-        response.status(400).json({
-          error: "Skill has no prompt steps",
-          detail:
-            "Add at least one node after retrieval (e.g. summarize) so the model can produce a reply. Raw document excerpts are never returned to the client.",
-        });
-        return;
+        nodeNames = parseSkillNodes(skill.skillNodes);
       }
 
       const traceId = randomUUID();

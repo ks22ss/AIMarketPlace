@@ -92,15 +92,18 @@ export function ChatPage() {
         return;
       }
       setUrlSkillWarning("That skill is not in your installed list or the link is invalid.");
-      setSelectedSkillId(skills[0]?.skill_id ?? "");
+      setSelectedSkillId("");
       return;
     }
     setUrlSkillWarning(null);
     setSelectedSkillId((current) => {
+      if (current === "") {
+        return "";
+      }
       if (current && skills.some((s) => s.skill_id === current)) {
         return current;
       }
-      return skills[0]?.skill_id ?? "";
+      return "";
     });
   }, [accessToken, skills, skillsLoading, urlSkillId]);
 
@@ -117,7 +120,7 @@ export function ChatPage() {
 
   const send = useCallback(async () => {
     const trimmed = draft.trim();
-    if (!trimmed || !accessToken || sending || !selectedSkillId) {
+    if (!trimmed || !accessToken || sending) {
       return;
     }
 
@@ -129,9 +132,11 @@ export function ChatPage() {
     setLines((previous) => [...previous, userLine]);
 
     try {
-      const result = await postChat(accessToken, trimmed, {
-        skill_id: selectedSkillId || undefined,
-      });
+      const result = await postChat(
+        accessToken,
+        trimmed,
+        selectedSkillId ? { skill_id: selectedSkillId } : undefined,
+      );
       setLines((previous) => [
         ...previous,
         {
@@ -163,12 +168,13 @@ export function ChatPage() {
         <div className="flex flex-col gap-1">
           <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Skill chat</h1>
           <p className="text-sm text-muted-foreground">
-            Only <strong>installed</strong> skills from the{" "}
+            Chat always uses the model (and document retrieval when configured). Optional{" "}
+            <strong>installed</strong> skills add workflow steps — pick one below or leave{" "}
+            <em>Default chat</em>. Browse the{" "}
             <Link to="/marketplace" className="text-primary underline-offset-4 hover:underline">
               Marketplace
-            </Link>{" "}
-            appear here. The API runs your workflow via{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">POST /api/chat</code>. Build workflows on{" "}
+            </Link>
+            , build nodes on the{" "}
             <Link to="/skills" className="text-primary underline-offset-4 hover:underline">
               Skill builder
             </Link>
@@ -235,14 +241,13 @@ export function ChatPage() {
                         className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
                         value={selectedSkillId}
                         onChange={(e) => setSelectedSkillId(e.target.value)}
-                        disabled={sending || skills.length === 0}
+                        disabled={sending}
                       >
-                        {skills.length === 0 ? (
-                          <option value="">No installed skills — use the Marketplace first</option>
-                        ) : null}
+                        <option value="">Default chat (model + retrieval only)</option>
                         {skills.map((s) => (
                           <option key={s.skill_id} value={s.skill_id}>
-                            {s.name} ({s.nodes.join(" → ")})
+                            {s.name}
+                            {s.nodes.length > 0 ? ` (${s.nodes.join(" → ")})` : ""}
                           </option>
                         ))}
                       </select>
@@ -260,17 +265,17 @@ export function ChatPage() {
                   ) : null}
                   {skills.length === 0 && !skillsLoading ? (
                     <p className="text-xs text-muted-foreground">
-                      Install a skill from the{" "}
+                      No optional workflows installed — you can still use default chat. Add skills from the{" "}
                       <Link to="/marketplace" className="font-medium text-primary underline-offset-4 hover:underline">
                         Marketplace
-                      </Link>{" "}
-                      to chat.
+                      </Link>
+                      .
                     </p>
                   ) : null}
                 </div>
               ) : null}
               {lines.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Send a message to run the selected skill.</p>
+                <p className="text-sm text-muted-foreground">Send a message — the model replies every time.</p>
               ) : null}
               {lines.map((line) => (
                 <div
@@ -321,11 +326,7 @@ export function ChatPage() {
                 <Button type="button" variant="outline" size="sm" disabled={sending} onClick={() => setLines([])}>
                   Clear
                 </Button>
-                <Button
-                  type="button"
-                  disabled={sending || !draft.trim() || skills.length === 0 || !selectedSkillId}
-                  onClick={() => void send()}
-                >
+                <Button type="button" disabled={sending || !draft.trim()} onClick={() => void send()}>
                   {sending ? (
                     <>
                       <Loader2Icon className="size-4 animate-spin" data-icon="inline-start" />

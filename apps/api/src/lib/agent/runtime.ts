@@ -26,20 +26,47 @@ export type RunSkillDeps = {
 
 const SYSTEM_RETRIEVE = "retrieve_documents";
 
+/** Built-in final step when a skill has no workflow nodes (skills/nodes are optional). */
+const DEFAULT_COMPLETION_NODE = "__default_agent_reply__";
+
+const DEFAULT_AGENT_PROMPT_TEMPLATE = [
+  "You are a helpful assistant for an internal AI marketplace.",
+  "When document context is provided below, ground your answer in it; do not invent unsupported facts.",
+  "If context is empty or irrelevant, answer from general knowledge when appropriate.",
+  "",
+  "--- Document context (may be empty) ---",
+  "{{context}}",
+  "",
+  "--- User question ---",
+  "{{query}}",
+  "",
+  "Reply concisely.",
+].join("\n");
+
 /**
- * When the document pipeline is enabled, run exactly one vector search before prompt nodes.
+ * When the document pipeline is enabled, run exactly one vector search before skill nodes.
  * Strips duplicate `retrieve_documents` entries from the skill definition so RAG is not skipped
  * when builders forget to add the system step.
+ * If there are no user-defined prompt nodes, appends a built-in completion step so the LLM always runs.
  */
 export function buildSkillExecutionOrder(
   pipeline: DocumentPipeline | null,
   skillNodeNames: string[],
 ): string[] {
+  let steps: string[];
   if (!pipeline) {
-    return skillNodeNames;
+    steps = [...skillNodeNames];
+  } else {
+    const withoutRetrieve = skillNodeNames.filter((name) => name !== SYSTEM_RETRIEVE);
+    steps = [SYSTEM_RETRIEVE, ...withoutRetrieve];
   }
-  const withoutRetrieve = skillNodeNames.filter((name) => name !== SYSTEM_RETRIEVE);
-  return [SYSTEM_RETRIEVE, ...withoutRetrieve];
+
+  const hasUserPrompt = steps.some((name) => !isSystemNodeName(name));
+  if (!hasUserPrompt) {
+    steps = [...steps, DEFAULT_COMPLETION_NODE];
+  }
+
+  return steps;
 }
 
 export function injectVariables(template: string, state: AgentState): string {
@@ -73,6 +100,10 @@ export async function runSkill(
 async function executeNode(deps: RunSkillDeps, nodeName: string, state: AgentState): Promise<AgentState> {
   if (nodeName === SYSTEM_RETRIEVE) {
     return retrieveDocuments(deps, state);
+  }
+
+  if (nodeName === DEFAULT_COMPLETION_NODE) {
+    return runPromptNode(deps, { name: DEFAULT_COMPLETION_NODE, promptTemplate: DEFAULT_AGENT_PROMPT_TEMPLATE }, state);
   }
 
   const node = await deps.prisma.node.findFirst({
