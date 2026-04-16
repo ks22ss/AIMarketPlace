@@ -1,3 +1,4 @@
+import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 import type { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage } from "@langchain/core/messages";
 import type { PrismaClient } from "@prisma/client";
@@ -5,16 +6,27 @@ import type { PrismaClient } from "@prisma/client";
 import type { DocumentPipeline } from "../../features/docs/document.pipeline.js";
 import { withTimeout } from "../with-timeout.js";
 
-export type AgentState = {
-  query: string;
-  context?: string;
-  output?: string;
-  intermediate: Record<string, unknown>;
-  userId: string;
-  departmentId: string;
-  /** UUID string used for node/skill tenancy (user.orgId ?? user.userId). */
-  orgScope: string;
-};
+// ---------------------------------------------------------------------------
+// LangGraph state annotation
+// ---------------------------------------------------------------------------
+
+const lastValue = <T>(fallback: T) => ({
+  reducer: (_prev: T, next: T) => next,
+  default: () => fallback,
+});
+
+const SkillGraphState = Annotation.Root({
+  query: Annotation<string>(),
+  context: Annotation<string>(lastValue("")),
+  output: Annotation<string>(lastValue("")),
+  intermediate: Annotation<Record<string, unknown>>(lastValue({})),
+  userId: Annotation<string>(),
+  departmentId: Annotation<string>(),
+  orgScope: Annotation<string>(),
+});
+
+/** Backward-compatible type alias — same shape callers already depend on. */
+export type AgentState = typeof SkillGraphState.State;
 
 export type RunSkillDeps = {
   prisma: PrismaClient;
@@ -23,6 +35,10 @@ export type RunSkillDeps = {
   /** Same scope as nodes/skills in DB (`org_id` column). */
   orgId: string;
 };
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 const SYSTEM_RETRIEVE = "retrieve_documents";
 
@@ -42,6 +58,10 @@ const DEFAULT_AGENT_PROMPT_TEMPLATE = [
   "",
   "Reply concisely.",
 ].join("\n");
+
+// ---------------------------------------------------------------------------
+// Execution-order logic (unchanged from before)
+// ---------------------------------------------------------------------------
 
 /**
  * When the document pipeline is enabled, run exactly one vector search before skill nodes.
@@ -69,6 +89,10 @@ export function buildSkillExecutionOrder(
   return steps;
 }
 
+// ---------------------------------------------------------------------------
+// Variable injection (unchanged)
+// ---------------------------------------------------------------------------
+
 export function injectVariables(template: string, state: AgentState): string {
   const safe = template.replace(/\x00/g, "");
   return safe
@@ -77,100 +101,84 @@ export function injectVariables(template: string, state: AgentState): string {
     .replaceAll("{{output}}", typeof state.output === "string" ? state.output : "");
 }
 
-export async function runSkill(
-  deps: RunSkillDeps,
-  skillNodeNames: string[],
-  initial: Pick<AgentState, "query" | "userId" | "departmentId" | "orgScope">,
-): Promise<AgentState> {
-  let state: AgentState = {
-    query: initial.query,
-    userId: initial.userId,
-    departmentId: initial.departmentId,
-    orgScope: initial.orgScope,
-    intermediate: {},
-  };
-  const order = buildSkillExecutionOrder(deps.pipeline, skillNodeNames);
-  for (const nodeName of order) {
-    console.log(`Executing node: ${nodeName}`);
-    state = await executeNode(deps, nodeName, state);
-  }
-  return state;
-}
+// ---------------------------------------------------------------------------
+// LangGraph node functions
+// ---------------------------------------------------------------------------
 
-async function executeNode(deps: RunSkillDeps, nodeName: string, state: AgentState): Promise<AgentState> {
-  if (nodeName === SYSTEM_RETRIEVE) {
-    return retrieveDocuments(deps, state);
-  }
+function retrieveDocumentsNode(deps: RunSkillDeps) {
+  return async (state: AgentState): Promise<Partial<AgentState>> => {
+    const prev = state.intermediate ?? {};
+    if (!deps.pipeline) {
+      // Match pre-LangGraph behavior: no pipeline means retrieval did not run, so do not
+      // record `retrieve_documents` in `intermediate` (avoids false "no excerpts" prompts).
+      return { context: "" };
+    }
 
-  if (nodeName === DEFAULT_COMPLETION_NODE) {
-    return runPromptNode(deps, { name: DEFAULT_COMPLETION_NODE, promptTemplate: DEFAULT_AGENT_PROMPT_TEMPLATE }, state);
-  }
+    try {
+      const results = await withTimeout(
+        deps.pipeline.queryContext({
+          departmentId: state.departmentId,
+          query: state.query,
+          limit: 12,
+        }),
+        120_000,
+        "Document retrieval (embedding + Weaviate)",
+      );
 
-  const node = await deps.prisma.node.findFirst({
-    where: { orgId: deps.orgId, name: nodeName },
-  });
-  if (!node) {
-    throw new Error(`Unknown node: ${nodeName}`);
-  }
-
-  return runPromptNode(deps, node, state);
-}
-
-async function retrieveDocuments(deps: RunSkillDeps, state: AgentState): Promise<AgentState> {
-  if (!deps.pipeline) {
-    return { ...state, context: "" };
-  }
-
-  try {
-    const results = await withTimeout(
-      deps.pipeline.queryContext({
-        departmentId: state.departmentId,
-        query: state.query,
-        limit: 12,
-      }),
-      120_000,
-      "Document retrieval (embedding + Weaviate)",
-    );
-
-    const context = results.map((r) => r.text).join("\n\n");
-    return {
-      ...state,
-      context,
-      intermediate: { ...state.intermediate, [SYSTEM_RETRIEVE]: results },
-    };
-  } catch (error) {
-    console.error("retrieve_documents failed or timed out", error);
-    return {
-      ...state,
-      context: "",
-      intermediate: { ...state.intermediate, [SYSTEM_RETRIEVE]: [] },
-    };
-  }
-}
-
-async function runPromptNode(
-  deps: RunSkillDeps,
-  node: { name: string; promptTemplate: string },
-  state: AgentState,
-): Promise<AgentState> {
-  let userMessage = injectVariables(node.promptTemplate, state);
-  const contextBlock = (state.context ?? "").trim();
-  const templateUsesContext = node.promptTemplate.includes("{{context}}");
-  const retrievalRan = Object.prototype.hasOwnProperty.call(state.intermediate, SYSTEM_RETRIEVE);
-
-  if (contextBlock.length > 0 && !templateUsesContext) {
-    userMessage = `${userMessage}\n\n--- Retrieved document excerpts ---\n${contextBlock}`;
-  } else if (contextBlock.length === 0 && retrievalRan) {
-    userMessage = `${userMessage}\n\n(No matching indexed document excerpts were found for this question.)`;
-  }
-
-  const response = await callLlm(deps.chatModel, userMessage);
-  return {
-    ...state,
-    output: response,
-    intermediate: { ...state.intermediate, [node.name]: response },
+      const context = results.map((r) => r.text).join("\n\n");
+      return {
+        context,
+        intermediate: { ...prev, [SYSTEM_RETRIEVE]: results },
+      };
+    } catch (error) {
+      console.error("retrieve_documents failed or timed out", error);
+      return {
+        context: "",
+        intermediate: { ...prev, [SYSTEM_RETRIEVE]: [] },
+      };
+    }
   };
 }
+
+function promptNodeFactory(deps: RunSkillDeps, nodeName: string) {
+  return async (state: AgentState): Promise<Partial<AgentState>> => {
+    let promptTemplate: string;
+
+    if (nodeName === DEFAULT_COMPLETION_NODE) {
+      promptTemplate = DEFAULT_AGENT_PROMPT_TEMPLATE;
+    } else {
+      const node = await deps.prisma.node.findFirst({
+        where: { orgId: deps.orgId, name: nodeName },
+      });
+      if (!node) {
+        throw new Error(`Unknown node: ${nodeName}`);
+      }
+      promptTemplate = node.promptTemplate;
+    }
+
+    let userMessage = injectVariables(promptTemplate, state);
+    const contextBlock = (state.context ?? "").trim();
+    const templateUsesContext = promptTemplate.includes("{{context}}");
+    const prev = state.intermediate ?? {};
+    const retrievalRan = Object.prototype.hasOwnProperty.call(prev, SYSTEM_RETRIEVE);
+
+    if (contextBlock.length > 0 && !templateUsesContext) {
+      userMessage = `${userMessage}\n\n--- Retrieved document excerpts ---\n${contextBlock}`;
+    } else if (contextBlock.length === 0 && retrievalRan) {
+      userMessage = `${userMessage}\n\n(No matching indexed document excerpts were found for this question.)`;
+    }
+
+    const response = await callLlm(deps.chatModel, userMessage);
+    return {
+      output: response,
+      intermediate: { ...prev, [nodeName]: response },
+    };
+  };
+}
+
+// ---------------------------------------------------------------------------
+// LLM call helpers (unchanged)
+// ---------------------------------------------------------------------------
 
 function aiMessageContentToString(content: unknown): string {
   if (typeof content === "string") {
@@ -201,6 +209,53 @@ async function callLlm(chatModel: ChatOpenAI, prompt: string): Promise<string> {
   );
   return aiMessageContentToString(message.content).trim();
 }
+
+// ---------------------------------------------------------------------------
+// Graph compilation + execution
+// ---------------------------------------------------------------------------
+
+function compileSkillGraph(deps: RunSkillDeps, skillNodeNames: string[]) {
+  const order = buildSkillExecutionOrder(deps.pipeline, skillNodeNames);
+  const graph = new StateGraph(SkillGraphState);
+
+  for (const stepName of order) {
+    if (stepName === SYSTEM_RETRIEVE) {
+      graph.addNode(stepName, retrieveDocumentsNode(deps));
+    } else {
+      graph.addNode(stepName, promptNodeFactory(deps, stepName));
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- node names are dynamic strings
+  const addEdge = (a: string, b: string) => graph.addEdge(a as any, b as any);
+
+  addEdge(START, order[0]!);
+  for (let i = 0; i < order.length - 1; i++) {
+    addEdge(order[i]!, order[i + 1]!);
+  }
+  addEdge(order[order.length - 1]!, END);
+
+  return graph.compile();
+}
+
+export async function runSkill(
+  deps: RunSkillDeps,
+  skillNodeNames: string[],
+  initial: Pick<AgentState, "query" | "userId" | "departmentId" | "orgScope">,
+): Promise<AgentState> {
+  const compiled = compileSkillGraph(deps, skillNodeNames);
+  const result = await compiled.invoke({
+    query: initial.query,
+    userId: initial.userId,
+    departmentId: initial.departmentId,
+    orgScope: initial.orgScope,
+  });
+  return result as AgentState;
+}
+
+// ---------------------------------------------------------------------------
+// Public helpers
+// ---------------------------------------------------------------------------
 
 export function isSystemNodeName(name: string): boolean {
   return name === SYSTEM_RETRIEVE || name === DEFAULT_COMPLETION_NODE;
