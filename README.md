@@ -32,6 +32,9 @@ Behavior is defined by the code; for a route-by-route picture see **`docs/spec.m
 - **Nodes (`GET /api/nodes`):** Only nodes in the user’s **`effectiveOrgId`** scope; each row is then filtered by that node’s own allow lists.
 - **Install & chat:** **`POST /api/skills/install`** re-checks the same skill visibility rule. **`POST /api/chat`** with `skill_id` requires an install row (**`UserSkill`**) and the skill allow lists again at request time.
 
+
+> In one sentence: Skills and Nodes are belongs to an organization's(tenant) department, with role based access control.
+
 ## Tech stack
 
 | Layer | Technologies |
@@ -107,22 +110,223 @@ Optional **LangSmith** tracing works when `LANGSMITH_*` env vars are set (LangCh
 
 ## Example: compliance node library & skills (optional catalog)
 
-These are **ideas** for org-scoped **nodes** (prompt templates, `snake_case` names) you build once in the UI, then wire into **skills** as ordered node lists. When the document pipeline is enabled, add implicit retrieval by including `retrieve_documents` in the skill or relying on the runtime to prepend it once per request (see `docs/spec.md` §8).
+These are **example** org-scoped **nodes** (`snake_case` names, DB `prompt_template` text) you can paste into the UI, then wire into **skills** as ordered node lists. Substitutions: `{{query}}` (user message), `{{context}}` (retrieved excerpts when the pipeline runs), `{{output}}` (previous prompt node’s reply in a chain). When the document pipeline is enabled, the runtime can prepend `retrieve_documents` once per request (see `docs/spec.md` §8).
 
 ### Reusable “compliance node library” (build once, mix into many skills)
 
-| Node name | What it does |
-|-----------|----------------|
-| `compliance_intake_normalize` | Turns messy questions into a structured brief (product, jurisdiction, date range, “must/should/may”, definitions). |
-| `policy_retrieval_gap_check` | Given `{{context}}`, lists what’s covered vs missing; asks clarifying questions if context is thin. |
-| `regulatory_delta_scan` | Compares two policy versions (e.g. pass the prior version in the prompt or split across templates / follow-up turns). |
-| `control_mapping_mapper` | Maps a requirement clause → SOC2/ISO/NIST-style control statements + evidence expectations. |
-| `risk_register_draft` | Severity/likelihood, triggers, mitigations, owners, review cadence. |
-| `audit_evidence_pack_outline` | “Evidence index” table: control → artifact type → where it lives → freshness. |
-| `vendor_dpa_clause_review` | Flags risky clauses vs your baseline posture (DPAs, SCCs, BAA-ish concepts). |
-| `incident_timeline_builder` | Chronological narrative suitable for regulators/legal review. |
-| `customer_comms_drafter` | External-safe comms with tone levels (internal / customer / regulator-facing) without overclaiming. |
-| `executive_one_pager` | Crisp summary with decisions needed + risks + deadlines. |
+#### `compliance_intake_normalize`
+
+```text
+You normalize messy compliance questions into a structured internal brief.
+
+Output markdown with exactly these sections:
+1. **Objective** — one sentence.
+2. **Product / service / data** — bullets.
+3. **Jurisdictions & frameworks** (e.g. EU, UK, US state, sector) — bullets.
+4. **Time horizon** — effective dates, review cadence, or "unspecified".
+5. **Obligations** — each line prefixed with MUST / SHOULD / MAY / UNKNOWN.
+6. **Terms to define** — glossary-style list or "none identified".
+7. **Clarifying questions** — numbered list (max 5) if information is missing.
+
+User question:
+{{query}}
+
+Indexed internal excerpts (may be empty):
+{{context}}
+```
+
+#### `policy_retrieval_gap_check`
+
+```text
+You are a policy coverage analyst. Use the prior step as the normalized brief.
+
+Tasks:
+1. Against the retrieved internal excerpts only, list what is **explicitly covered** (cite short quotes or section hints).
+2. List what is **missing, ambiguous, or contradictory** relative to the brief.
+3. If excerpts are thin or empty, say so and ask up to 5 targeted clarifying questions.
+
+Prior step output:
+{{output}}
+
+Retrieved internal policy excerpts:
+{{context}}
+
+Original user question (for alignment):
+{{query}}
+```
+
+#### `regulatory_delta_scan`
+
+```text
+You compare policy or product obligations across two states: (A) prior / baseline and (B) proposed / current. Use the earlier pipeline output as structured input; use retrieved excerpts as ground truth where they apply.
+
+Produce:
+1. **Summary table** — rows: topic | Baseline | Proposed / described | Delta (lower / similar / higher risk).
+2. **Material changes** — numbered, with why it matters for customers, employees, or regulators.
+3. **Conflicts** — internal policy vs stated change vs regulatory expectation (only if inferable from excerpts).
+
+Prior step output:
+{{output}}
+
+Retrieved excerpts:
+{{context}}
+
+User question / change description:
+{{query}}
+```
+
+#### `control_mapping_mapper`
+
+```text
+You map requirements to SOC 2, ISO 27001-style, and NIST CSF-style control language.
+
+Prior step output:
+{{output}}
+
+Retrieved internal policies and procedures:
+{{context}}
+
+Original request:
+{{query}}
+
+Output:
+1. **Requirement → control mapping table** — columns: Requirement | Control ID (suggested) | Control statement | Likely evidence types.
+2. **Gap analysis** — where the org's docs are silent.
+3. **Testing hints** — what an auditor might ask for each mapped control.
+```
+
+#### `risk_register_draft`
+
+```text
+Draft an operational risk register from the prior analysis. Use a markdown table with columns:
+Risk ID | Description | Likelihood (L/M/H) | Impact (L/M/H) | Triggers | Mitigations | Owner role (suggested) | Review cadence
+
+Rules:
+- At least 5 rows unless the prior output clearly supports fewer; then explain.
+- Do not invent incidents; risks must trace to the prior step or cited excerpts.
+
+Prior step output:
+{{output}}
+
+Supporting excerpts:
+{{context}}
+
+User question:
+{{query}}
+```
+
+#### `audit_evidence_pack_outline`
+
+```text
+Produce an evidence index suitable for audit fieldwork prep.
+
+Use a table with columns: Control or obligation | Expected artifact types | Likely system/source | Location hint | Freshness / recency | Readiness (Ready / Partial / Missing).
+
+Base the rows on prior pipeline output. Ground "what we already have" in retrieved excerpts when they mention artifacts, tickets, logs, or processes.
+
+Prior step output:
+{{output}}
+
+Retrieved internal documents:
+{{context}}
+
+User question:
+{{query}}
+```
+
+#### `vendor_dpa_clause_review`
+
+```text
+You are a vendor contracting reviewer (not legal advice). Compare vendor contract language against the organization's baseline posture.
+
+Baseline expectations unless excerpts below override them:
+- GDPR-style DPA / SCC framing where applicable
+- Subprocessor change notice (e.g. 30 days)
+- No uncapped liability for data protection breaches
+- Security incident notification within 72 hours of awareness where standard
+- No broad unlimited model training on customer personal data without a consent framework
+
+Tasks:
+1. **Red flags** — clause theme, quote or paraphrase, severity (dealbreaker / negotiate / accept).
+2. **Acceptable fallbacks** — practical compromises.
+3. **Questions for legal** — bullet list.
+
+User question / pasted clauses:
+{{query}}
+
+Prior normalized intake or summary:
+{{output}}
+
+Indexed templates and DPAs:
+{{context}}
+```
+
+#### `incident_timeline_builder`
+
+```text
+Build a chronological incident timeline suitable for legal and regulator-facing review.
+
+Rules:
+- Use UTC timestamps where given; otherwise label "approximate" or "unknown".
+- Each entry: Time | Fact | Source (e.g. user message, prior output, excerpt) | Confidence (high/med/low).
+- Separate facts stated from inferences (label inference rows clearly).
+- End with known unknowns and recommended next evidence pulls.
+
+User narrative:
+{{query}}
+
+Prior step output:
+{{output}}
+
+Retrieved playbooks / policies:
+{{context}}
+```
+
+#### `customer_comms_drafter`
+
+```text
+Draft external-safe communications. Do not overclaim; avoid speculation.
+
+Produce three drafts labeled **Internal (engineering)**, **Customer email**, and **Regulator-style notification (if applicable)**.
+
+Tone rules:
+- Honest about what is confirmed vs under investigation.
+- No blame of individuals by name.
+- Include next update cadence if status is evolving.
+
+User ask:
+{{query}}
+
+Prior analysis / timeline / intake:
+{{output}}
+
+Retrieved trust center or policy language (align wording; do not contradict):
+{{context}}
+```
+
+#### `executive_one_pager`
+
+```text
+Write a one-page executive summary (about 400–550 words unless the user asked for shorter).
+
+Sections:
+- **Bottom line** (3 bullets max)
+- **Decisions needed** (each with owner role suggestion and deadline if inferable else TBD)
+- **Top risks** (ranked, with one-line mitigations)
+- **Dependencies & blockers**
+- **Ask** — what you need from leadership now
+
+Ground claims in the prior pipeline output; use retrieved excerpts only as supporting detail.
+
+User question:
+{{query}}
+
+Prior consolidated output:
+{{output}}
+
+Retrieved excerpts (optional detail):
+{{context}}
+```
 
 ### “Very cool / impressive” skills (pitch-style)
 
