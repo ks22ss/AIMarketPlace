@@ -67,10 +67,10 @@ Source: `apps/api/prisma/schema.prisma`.
 ## 8. Chat and skill runtime
 
 - **POST `/api/chat`**: body `message`, optional `skill_id` (`public-api.ts`). Requires a configured chat model (`CHAT_API_KEY` or `OPENAI_API_KEY` or `MINIMAX_API_KEY`, plus base URL / `LLM_MODEL` — see `chat-llm.ts`). Returns `reply` and `traceId` (UUID generated per request; not a persisted trace id).
-- **Execution** (`lib/agent/runtime.ts`): **linear** execution over an ordered list of node names. If the document pipeline is enabled, a synthetic first step **`retrieve_documents`** is prepended (and duplicates of that name in the skill are stripped) so one vector query runs before prompt nodes.
-- **`retrieve_documents`**: calls `pipeline.queryContext` with **limit 12**, joins chunk texts into `context`.
-- **Prompt nodes**: load `Node` by org + name; substitute `{{query}}`, `{{context}}`, `{{output}}`; if the template omits `{{context}}` but context exists, context is appended; if retrieval ran but context is empty, an explicit “no excerpts” line may be appended. One LLM call per prompt node via LangChain `ChatOpenAI.invoke`.
-- **LangGraph**: `@langchain/langgraph` is a dependency, and `features/chat/rag-agent.graph.ts` defines a small plan → retrieve → answer graph using the OpenAI SDK — **this graph is not imported by `index.ts` or `chat.routes.ts`**. HTTP chat uses `runSkill` only.
+- **Execution** (`lib/agent/runtime.ts`): a **LangGraph `StateGraph`** is compiled dynamically per chat request. `buildSkillExecutionOrder` computes the step list, then `compileSkillGraph` maps each step to a graph node and wires linear `START → step[0] → … → END` edges. `runSkill` calls `compiled.invoke()`.
+- **`retrieve_documents` node**: calls `pipeline.queryContext` with **limit 12**, joins chunk texts into `state.context`. Failures degrade gracefully (empty context, execution continues).
+- **Prompt nodes**: `promptNodeFactory` loads `Node` by org + name (or uses the built-in template for `__default_agent_reply__`); substitutes `{{query}}`, `{{context}}`, `{{output}}`; if the template omits `{{context}}` but context exists, context is appended; if retrieval ran but context is empty, an explicit “no excerpts” line may be appended. One LLM call per prompt node via LangChain `ChatOpenAI.invoke`.
+- **State**: `SkillGraphState` (`Annotation.Root`) with last-write-wins channels for `context`, `output`, `intermediate`; `AgentState` is a backward-compatible type alias. The former `features/chat/rag-agent.graph.ts` has been removed; all graph logic lives in `runtime.ts`.
 
 ## 9. Tools API (stub)
 
