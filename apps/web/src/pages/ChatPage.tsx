@@ -85,7 +85,10 @@ function ReasoningBlock({ reasoning, open, isStreaming, onToggle }: ReasoningBlo
         ) : null}
       </button>
       {open ? (
-        <div className="whitespace-pre-wrap wrap-break-word border-t border-dashed border-muted px-2.5 py-2 text-muted-foreground">
+        <div
+          data-testid="reasoning-expanded-body"
+          className="whitespace-pre-wrap wrap-break-word border-t border-dashed border-muted px-2.5 py-2 text-muted-foreground"
+        >
           {reasoning || (isStreaming ? "..." : "")}
         </div>
       ) : null}
@@ -411,7 +414,7 @@ export function ChatPage() {
 
   if (authLoading) {
     return (
-      <main className="flex flex-1 items-center justify-center px-4 py-10">
+      <main className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 py-10">
         <p className="text-sm text-muted-foreground">Checking session...</p>
       </main>
     );
@@ -419,7 +422,7 @@ export function ChatPage() {
 
   if (!accessToken) {
     return (
-      <main className="flex flex-1 items-center justify-center px-4 py-10">
+      <main className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 py-10">
         <div className="flex max-w-sm flex-col gap-3 rounded-lg border bg-background p-6 shadow-sm">
           <h1 className="font-heading text-lg font-semibold tracking-tight">Sign in required</h1>
           <p className="text-sm text-muted-foreground">
@@ -434,8 +437,8 @@ export function ChatPage() {
   }
 
   return (
-    <div className="flex min-h-svh min-w-0 flex-1">
-      <main className="flex min-h-svh min-w-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="flex items-center justify-between gap-3 border-b bg-background/80 px-6 py-3 backdrop-blur">
           <div className="flex min-w-0 flex-col">
             <h1 className="truncate font-heading text-base font-semibold tracking-tight">

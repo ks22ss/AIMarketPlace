@@ -52,10 +52,10 @@ export function AppLayout() {
     );
 
   return (
-    <div className="flex min-h-svh w-full bg-background">
+    <div className="flex h-full min-h-0 w-full flex-1 overflow-hidden bg-background">
       <aside
         className={cn(
-          "flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar py-4 text-sidebar-foreground transition-[width] duration-200 ease-out",
+          "flex h-full min-h-0 shrink-0 flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar py-4 text-sidebar-foreground transition-[width] duration-200 ease-out",
           collapsed ? "w-14 px-2" : "w-60 px-3",
         )}
         aria-label="Primary sidebar"
@@ -127,8 +127,8 @@ export function AppLayout() {
         </Button>
       </aside>
 
-      <div className="flex min-h-svh min-w-0 flex-1 flex-col">
-        <div className="relative flex min-h-svh min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <ApiHealthDot className="absolute right-4 top-4 z-10" />
           <Outlet />
         </div>

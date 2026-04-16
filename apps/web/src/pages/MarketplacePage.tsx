@@ -172,7 +172,7 @@ export function MarketplacePage() {
   );
 
   return (
-    <main className="flex min-h-full flex-1 flex-col gap-6 bg-background px-4 py-10">
+    <main className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto bg-background px-4 py-10">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-2">
         <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Marketplace</h1>
         <p className="max-w-2xl text-sm text-muted-foreground">

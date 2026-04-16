@@ -131,15 +131,29 @@ export async function upsertConversationTurn(
   if (conversationId) {
     const existing = await prisma.chatConversation.findUnique({
       where: { conversationId },
+      select: { userId: true },
     });
     if (existing && existing.userId === userId) {
-      const current = parseStoredMessages(existing.messages);
-      const next = [...current, userMessage, assistantMessage];
-      const updated = await prisma.chatConversation.update({
-        where: { conversationId },
-        data: { messages: next as unknown as Prisma.InputJsonValue },
-      });
-      return { conversationId: updated.conversationId, title: updated.title };
+      // Atomic jsonb array append so concurrent turns cannot overwrite each other (read-modify-write race).
+      const pair = [userMessage, assistantMessage];
+      const appendJson = JSON.stringify(pair);
+      const updatedRows = await prisma.$executeRaw`
+        UPDATE "chat_conversations"
+        SET
+          "messages" = COALESCE("messages", '[]'::jsonb) || ${appendJson}::jsonb,
+          "updated_at" = CURRENT_TIMESTAMP
+        WHERE "conversation_id" = ${conversationId}::uuid
+          AND "user_id" = ${userId}::uuid
+      `;
+      if (updatedRows > 0) {
+        const updated = await prisma.chatConversation.findUniqueOrThrow({
+          where: { conversationId },
+          select: { conversationId: true, title: true },
+        });
+        return { conversationId: updated.conversationId, title: updated.title };
+      }
+      // Row existed at read time but disappeared before update (rare); avoid creating a forked thread.
+      throw new Error("Conversation not found or could not be updated");
     }
   }
 

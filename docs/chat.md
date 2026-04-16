@@ -60,7 +60,9 @@ The API route validates the request body (Zod schema) and returns `503` if the s
 (404 when the conversation belongs to another user, to avoid leaking ids). If `Accept` includes `text/event-stream`,
 successful responses use SSE (see `public-api.ts` for event payloads); otherwise the handler returns JSON
 `{ reply, traceId, conversationId, conversationTitle }`. Either way, both the user and assistant messages are appended
-to the conversation once the run finishes.
+to the conversation once the run finishes. For existing threads, the server appends the new pair with a single
+Postgres `jsonb ||` update so concurrent requests from multiple tabs concatenate instead of overwriting the whole
+`messages` array.
 
 **Code snippet** (`apps/api/src/features/chat/chat.routes.ts`)
 

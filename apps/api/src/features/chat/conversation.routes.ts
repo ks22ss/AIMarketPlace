@@ -11,7 +11,6 @@ import {
 } from "../../contracts/public-api.js";
 import { asyncHandler } from "../../lib/async-handler.js";
 import { requireAuth } from "../auth/auth.middleware.js";
-import { effectiveOrgId } from "../nodes/access.js";
 import { toConversationDto, toSummaryDto } from "./chat-history.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -64,25 +63,10 @@ export function createChatConversationsRouter(prisma: PrismaClient): Router {
         return;
       }
 
-      const user = await prisma.user.findUnique({
-        where: { userId: auth.userId },
-        select: { userId: true, orgId: true },
-      });
-      if (!user) {
-        response.status(401).json({ error: "User not found" });
-        return;
-      }
-
       const row = await prisma.chatConversation.findUnique({
         where: { conversationId: id },
       });
       if (!row || row.userId !== auth.userId) {
-        response.status(404).json({ error: "Conversation not found" });
-        return;
-      }
-      // Tenancy guard: if conversation was created under an org, require a match.
-      const org = effectiveOrgId(user);
-      if (row.orgId && row.orgId !== org && row.orgId !== user.orgId) {
         response.status(404).json({ error: "Conversation not found" });
         return;
       }

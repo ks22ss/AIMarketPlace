@@ -60,6 +60,7 @@ export function ChatHistorySidebar({
   const [draftTitle, setDraftTitle] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const renameCommitInFlightRef = useRef(false);
 
   const refresh = useCallback(async () => {
     if (!accessToken) {
@@ -106,12 +107,13 @@ export function ChatHistorySidebar({
   }, []);
 
   const commitRename = useCallback(async () => {
-    if (!renamingId) return;
+    if (!renamingId || renameCommitInFlightRef.current) return;
     const title = draftTitle.trim();
     if (title.length === 0) {
       setRenamingId(null);
       return;
     }
+    renameCommitInFlightRef.current = true;
     const prev = items;
     setItems((list) =>
       list.map((it) => (it.conversation_id === renamingId ? { ...it, title } : it)),
@@ -123,6 +125,7 @@ export function ChatHistorySidebar({
       setItems(prev);
       setError(e instanceof Error ? e.message : "Rename failed");
     } finally {
+      renameCommitInFlightRef.current = false;
       setBusyId(null);
       setRenamingId(null);
     }
@@ -161,7 +164,7 @@ export function ChatHistorySidebar({
   if (collapsed) {
     return (
       <aside
-        className="flex w-10 shrink-0 flex-col items-center border-l border-sidebar-border bg-sidebar py-4"
+        className="flex h-full min-h-0 w-10 shrink-0 flex-col items-center border-l border-sidebar-border bg-sidebar py-4"
         aria-label="Chat history (collapsed)"
       >
         <button
@@ -180,7 +183,7 @@ export function ChatHistorySidebar({
 
   return (
     <aside
-      className="flex w-72 shrink-0 flex-col border-l border-sidebar-border bg-sidebar text-sidebar-foreground"
+      className="flex h-full min-h-0 w-72 shrink-0 flex-col overflow-hidden border-l border-sidebar-border bg-sidebar text-sidebar-foreground"
       aria-label="Chat history"
     >
       <div className="flex items-center justify-between gap-2 border-b border-sidebar-border px-3 py-3">

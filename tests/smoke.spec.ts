@@ -77,13 +77,15 @@ test("chat collapses <think> reasoning and keeps it togglable", async ({ page })
   await page.getByPlaceholder("Message...").fill("What is 6x7?");
   await page.getByRole("button", { name: "Send" }).click();
 
-  // Visible content shows after </think>, reasoning is NOT directly visible until toggled.
+  // Visible content shows after </think>; full reasoning stays in the collapsible panel until expanded.
   await expect(page.getByText("Final answer: 42")).toBeVisible();
-  await expect(page.getByText("internal reasoning chain")).not.toBeVisible();
+  const reasoningToggle = page.getByRole("button", { name: /^Reasoning/ });
+  await expect(reasoningToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByTestId("reasoning-expanded-body")).toHaveCount(0);
 
-  // Expand the reasoning block.
-  await page.getByRole("button", { name: /^Reasoning/ }).click();
-  await expect(page.getByText("internal reasoning chain")).toBeVisible();
+  await reasoningToggle.click();
+  await expect(reasoningToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByTestId("reasoning-expanded-body")).toContainText("internal reasoning chain");
 });
 
 test("documents upload flow completes (presign → PUT → ingest)", async ({ page }) => {

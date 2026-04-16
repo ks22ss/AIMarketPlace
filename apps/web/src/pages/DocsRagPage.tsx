@@ -122,7 +122,7 @@ export function DocsRagPage() {
   );
 
   return (
-    <main className="flex min-h-full flex-1 flex-col items-center px-4 py-10">
+    <main className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-4 py-10">
       <div className="flex w-full max-w-2xl flex-col gap-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-1">
