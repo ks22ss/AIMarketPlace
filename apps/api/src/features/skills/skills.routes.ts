@@ -5,28 +5,29 @@ import { z } from "zod";
 
 import {
   skillCreateBodySchema,
+  skillUpdateBodySchema,
   type SkillCreateResponse,
+  type SkillDeleteResponse,
   skillInstallBodySchema,
   type SkillInstallResponse,
   type SkillsListResponse,
   type SkillUninstallResponse,
+  type SkillUpdateResponse,
 } from "../../contracts/public-api.js";
 import { accessSummaryForSkill } from "../../lib/access-summary.js";
 import { DEFAULT_ORG_ID } from "../../lib/org-config.js";
 import { resolveAllowLists } from "../../lib/resolve-allow-lists.js";
 import { normalizeUserRoleSlug } from "../../lib/user-roles.js";
 import { requireAuth } from "../auth/auth.middleware.js";
-import { effectiveOrgId, userMatchesAllowLists } from "../nodes/access.js";
-import { isSystemNodeName } from "../../lib/agent/runtime.js";
+import { effectiveOrgId } from "../nodes/access.js";
 import { asyncHandler } from "../../lib/async-handler.js";
 import {
   findVisibleSkillsForUser,
   parseStoredSkillNodes,
   skillVisibleToUser,
+  validateSkillWorkflowNodes,
   type SkillVisibilityUser,
 } from "./skill-queries.js";
-
-const SKILL_NODES_MAX = 10;
 
 function installedOnlyFromQuery(query: Request["query"]): boolean {
   const raw = query.installed_only;
@@ -67,40 +68,14 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
     }
 
     const nodes = parsed.data.nodes;
-    if (nodes.length < 1 || nodes.length > SKILL_NODES_MAX) {
-      response.status(400).json({
-        error: "Invalid nodes",
-        detail: `Provide between 1 and ${SKILL_NODES_MAX} node names.`,
-      });
-      return;
-    }
-
     const org = effectiveOrgId(user);
     const accessUser = { role: normalizeUserRoleSlug(user.role), department: user.department.name };
 
-    for (const nodeName of nodes) {
-      if (isSystemNodeName(nodeName)) {
-        continue;
-      }
-      const node = await prisma.node.findFirst({
-        where: { orgId: org, name: nodeName },
-      });
-      if (!node) {
-        response.status(400).json({
-          error: "Unknown node",
-          detail: `No node named "${nodeName}" in your organization.`,
-        });
-        return;
-      }
-      if (!userMatchesAllowLists(accessUser, node.allowRole, node.allowDepartment)) {
-        response.status(403).json({
-          error: "Forbidden",
-          detail: `You do not have access to node "${nodeName}".`,
-        });
-        return;
-      }
+    const workflowCheck = await validateSkillWorkflowNodes(prisma, org, accessUser, nodes);
+    if (!workflowCheck.ok) {
+      response.status(workflowCheck.status).json(workflowCheck.body);
+      return;
     }
-
     const resolvedLists = await resolveAllowLists(prisma, {
       allow_department_ids: parsed.data.allow_department_ids,
       allow_role_slugs: parsed.data.allow_role_slugs,
@@ -170,6 +145,8 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
         org_id: s.orgId,
         created_at: s.createdAt.toISOString(),
         access_summary: accessSummaryForSkill(s.allowRole, s.allowDepartment),
+        allow_role: s.allowRole,
+        allow_department: s.allowDepartment,
       })),
     };
     response.json(payload);
@@ -293,5 +270,173 @@ export function createSkillsRouter(prisma: PrismaClient): Router {
     }),
   );
 
+
+  router.patch(
+    "/:skillId",
+    requireAuth,
+    asyncHandler(async (request, response) => {
+      const parsedId = z.string().uuid().safeParse(request.params.skillId);
+      if (!parsedId.success) {
+        response.status(400).json({ error: "Invalid skill id" });
+        return;
+      }
+
+      const parsed = skillUpdateBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        response.status(400).json({
+          error: "Invalid request body",
+          details: parsed.error.flatten(),
+        });
+        return;
+      }
+
+      const auth = request.authUser;
+      if (!auth) {
+        response.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { userId: auth.userId },
+        select: {
+          userId: true,
+          orgId: true,
+          role: true,
+          department: { select: { name: true } },
+        },
+      });
+      if (!user) {
+        response.status(401).json({ error: "User not found" });
+        return;
+      }
+
+      const visibilityUser: SkillVisibilityUser = {
+        userId: user.userId,
+        orgId: user.orgId,
+        role: normalizeUserRoleSlug(user.role),
+        department: user.department.name,
+      };
+
+      const skill = await prisma.skill.findUnique({
+        where: { skillId: parsedId.data },
+      });
+      if (!skill) {
+        response.status(404).json({ error: "Skill not found" });
+        return;
+      }
+      if (!skillVisibleToUser(skill, visibilityUser)) {
+        response.status(403).json({ error: "Forbidden", detail: "You cannot update this skill." });
+        return;
+      }
+
+      const org = effectiveOrgId(user);
+      const accessUser = { role: normalizeUserRoleSlug(user.role), department: user.department.name };
+
+      if (parsed.data.nodes !== undefined) {
+        const workflowCheck = await validateSkillWorkflowNodes(prisma, org, accessUser, parsed.data.nodes);
+        if (!workflowCheck.ok) {
+          response.status(workflowCheck.status).json(workflowCheck.body);
+          return;
+        }
+      }
+
+      const data: Prisma.SkillUpdateInput = {};
+      if (parsed.data.name !== undefined) {
+        data.name = parsed.data.name.trim();
+      }
+      if (parsed.data.description !== undefined) {
+        data.description =
+          parsed.data.description === null
+            ? null
+            : String(parsed.data.description).replace(/\x00/g, "").slice(0, 8000);
+      }
+      if (parsed.data.nodes !== undefined) {
+        data.skillNodes = parsed.data.nodes;
+      }
+      if (parsed.data.content !== undefined) {
+        data.content = parsed.data.content as Prisma.InputJsonValue;
+      }
+      if (parsed.data.allow_department_ids !== undefined || parsed.data.allow_role_slugs !== undefined) {
+        const resolvedLists = await resolveAllowLists(prisma, {
+          allow_department_ids: parsed.data.allow_department_ids,
+          allow_role_slugs: parsed.data.allow_role_slugs,
+        });
+        if (!resolvedLists.ok) {
+          response.status(400).json({ error: resolvedLists.error });
+          return;
+        }
+        data.allowRole = resolvedLists.allowRole;
+        data.allowDepartment = resolvedLists.allowDepartment;
+      }
+
+      const updated = await prisma.skill.update({
+        where: { skillId: parsedId.data },
+        data,
+      });
+
+      const payload: SkillUpdateResponse = {
+        skill_id: updated.skillId,
+        name: updated.name,
+        version: updated.version,
+        nodes: parseStoredSkillNodes(updated.skillNodes),
+      };
+      response.json(payload);
+    }),
+  );
+
+  router.delete(
+    "/:skillId",
+    requireAuth,
+    asyncHandler(async (request, response) => {
+      const parsedId = z.string().uuid().safeParse(request.params.skillId);
+      if (!parsedId.success) {
+        response.status(400).json({ error: "Invalid skill id" });
+        return;
+      }
+
+      const auth = request.authUser;
+      if (!auth) {
+        response.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { userId: auth.userId },
+        select: {
+          userId: true,
+          orgId: true,
+          role: true,
+          department: { select: { name: true } },
+        },
+      });
+      if (!user) {
+        response.status(401).json({ error: "User not found" });
+        return;
+      }
+
+      const visibilityUser: SkillVisibilityUser = {
+        userId: user.userId,
+        orgId: user.orgId,
+        role: normalizeUserRoleSlug(user.role),
+        department: user.department.name,
+      };
+
+      const skill = await prisma.skill.findUnique({
+        where: { skillId: parsedId.data },
+      });
+      if (!skill) {
+        response.status(404).json({ error: "Skill not found" });
+        return;
+      }
+      if (!skillVisibleToUser(skill, visibilityUser)) {
+        response.status(403).json({ error: "Forbidden", detail: "You cannot delete this skill." });
+        return;
+      }
+
+      await prisma.skill.delete({ where: { skillId: parsedId.data } });
+      const body: SkillDeleteResponse = { deleted: true, skill_id: parsedId.data };
+      response.json(body);
+    }),
+  );
   return router;
 }

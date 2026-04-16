@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronDownIcon, ChevronUpIcon, Loader2Icon, Trash2Icon } from "lucide-react";
+import { ChevronDownIcon, ChevronUpIcon, Loader2Icon, PencilIcon, Trash2Icon } from "lucide-react";
 
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { listNodes, type NodeDto } from "@/lib/nodesClient";
 import { listDepartments, listRoles, type DepartmentOption, type RoleOption } from "@/lib/referenceClient";
-import { createSkill, listSkills, type SkillSummaryDto } from "@/lib/skillsClient";
+import { createSkill, deleteSkill, listSkills, updateSkill, type SkillSummaryDto } from "@/lib/skillsClient";
 
 const SYSTEM_OPTION = "retrieve_documents";
 
@@ -36,6 +36,7 @@ export function SkillBuilderPage() {
   const [refError, setRefError] = useState<string | null>(null);
   const [allowDepartmentIds, setAllowDepartmentIds] = useState<string[]>([]);
   const [allowRoleSlugs, setAllowRoleSlugs] = useState<("member" | "admin")[]>([]);
+  const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
 
   const options = useMemo(() => {
     const custom = nodes.map((n) => n.name);
@@ -111,24 +112,88 @@ export function SkillBuilderPage() {
     });
   }, []);
 
+  function beginEditSkill(skill: SkillSummaryDto): void {
+    setEditingSkillId(skill.skill_id);
+    setSkillName(skill.name);
+    setSkillDescription(skill.description ?? "");
+    setWorkflow([...skill.nodes]);
+    const deptIds = departments
+      .filter((d) => skill.allow_department.includes(d.name))
+      .map((d) => d.id);
+    setAllowDepartmentIds(deptIds);
+    const roles = skill.allow_role.filter((r): r is "member" | "admin" => r === "member" || r === "admin");
+    setAllowRoleSlugs(roles);
+    setSaveMessage(null);
+  }
+
+  function cancelEditSkill(): void {
+    setEditingSkillId(null);
+    setSkillName("");
+    setSkillDescription("");
+    setWorkflow([]);
+    setAllowDepartmentIds([]);
+    setAllowRoleSlugs([]);
+    setPick("");
+    setSaveMessage(null);
+  }
+
+  const removeSkill = useCallback(
+    async (skillId: string) => {
+      if (!accessToken) {
+        return;
+      }
+      if (!window.confirm("Delete this skill? Installs are removed with the skill.")) {
+        return;
+      }
+      setSaveMessage(null);
+      try {
+        await deleteSkill(accessToken, skillId);
+        if (editingSkillId === skillId) {
+          cancelEditSkill();
+        }
+        await refresh();
+      } catch (e: unknown) {
+        setSaveMessage(e instanceof Error ? e.message : "Delete failed");
+      }
+    },
+    [accessToken, editingSkillId, refresh],
+  );
+
   const submit = useCallback(async () => {
     if (!accessToken || saving || workflow.length === 0) {
+      return;
+    }
+    if (!editingSkillId && !skillName.trim()) {
       return;
     }
     setSaving(true);
     setSaveMessage(null);
     try {
-      const created = await createSkill(accessToken, {
-        name: skillName.trim(),
-        description: skillDescription.trim() || null,
-        nodes: workflow,
-        ...(allowDepartmentIds.length > 0 ? { allow_department_ids: allowDepartmentIds } : {}),
-        ...(allowRoleSlugs.length > 0 ? { allow_role_slugs: allowRoleSlugs } : {}),
-      });
-      setSaveMessage(`Created skill "${created.name}" with ${created.nodes.join(" → ")}`);
-      setSkillName("");
-      setSkillDescription("");
-      setWorkflow([]);
+      if (editingSkillId) {
+        await updateSkill(accessToken, editingSkillId, {
+          name: skillName.trim(),
+          description: skillDescription.trim() || null,
+          nodes: workflow,
+          allow_department_ids: allowDepartmentIds,
+          allow_role_slugs: allowRoleSlugs,
+        });
+        setSaveMessage(`Updated skill "${skillName.trim()}"`);
+        cancelEditSkill();
+      } else {
+        const created = await createSkill(accessToken, {
+          name: skillName.trim(),
+          description: skillDescription.trim() || null,
+          nodes: workflow,
+          ...(allowDepartmentIds.length > 0 ? { allow_department_ids: allowDepartmentIds } : {}),
+          ...(allowRoleSlugs.length > 0 ? { allow_role_slugs: allowRoleSlugs } : {}),
+        });
+        setSaveMessage(`Created skill "${created.name}" with ${created.nodes.join(" → ")}`);
+        setSkillName("");
+        setSkillDescription("");
+        setWorkflow([]);
+        setAllowDepartmentIds([]);
+        setAllowRoleSlugs([]);
+      }
       await refresh();
     } catch (e: unknown) {
       setSaveMessage(e instanceof Error ? e.message : "Save failed");
@@ -139,6 +204,7 @@ export function SkillBuilderPage() {
     accessToken,
     allowDepartmentIds,
     allowRoleSlugs,
+    editingSkillId,
     refresh,
     saving,
     skillDescription,
@@ -177,7 +243,7 @@ export function SkillBuilderPage() {
         {accessToken ? (
           <Card>
             <CardHeader>
-              <CardTitle>New skill</CardTitle>
+              <CardTitle>{editingSkillId ? "Edit skill" : "New skill"}</CardTitle>
               <CardDescription>
                 {loadError ?? `${options.length - 1} custom nodes available`}
                 {refError ? ` · ${refError}` : ""}
@@ -324,10 +390,15 @@ export function SkillBuilderPage() {
                 </p>
               ) : null}
             </CardContent>
-            <CardFooter className="flex justify-end">
+            <CardFooter className="flex flex-wrap justify-end gap-2">
+              {editingSkillId ? (
+                <Button type="button" variant="outline" disabled={saving} onClick={cancelEditSkill}>
+                  Cancel edit
+                </Button>
+              ) : null}
               <Button
                 type="button"
-                disabled={saving || !skillName.trim() || workflow.length === 0}
+                disabled={saving || workflow.length === 0 || (!editingSkillId && !skillName.trim())}
                 onClick={() => void submit()}
               >
                 {saving ? (
@@ -335,6 +406,8 @@ export function SkillBuilderPage() {
                     <Loader2Icon className="size-4 animate-spin" data-icon="inline-start" />
                     Saving
                   </>
+                ) : editingSkillId ? (
+                  "Save changes"
                 ) : (
                   "Create skill"
                 )}
@@ -352,9 +425,37 @@ export function SkillBuilderPage() {
               {skills.length === 0 ? <p className="text-muted-foreground">No skills yet.</p> : null}
               {skills.map((s) => (
                 <div key={s.skill_id} className="rounded-md border border-border px-3 py-2">
-                  <div className="font-medium">{s.name}</div>
-                  <div className="font-mono text-xs text-muted-foreground">{s.nodes.join(" → ")}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">{s.access_summary}</div>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div className="font-medium">{s.name}</div>
+                      <div className="font-mono text-xs text-muted-foreground">{s.nodes.join(" → ")}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">{s.access_summary}</div>
+                    </div>
+                    <span className="flex shrink-0 gap-1">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-8"
+                        disabled={saving}
+                        onClick={() => beginEditSkill(s)}
+                        aria-label="Edit skill"
+                      >
+                        <PencilIcon className="size-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-8 text-destructive"
+                        disabled={saving}
+                        onClick={() => void removeSkill(s.skill_id)}
+                        aria-label="Delete skill"
+                      >
+                        <Trash2Icon className="size-4" />
+                      </Button>
+                    </span>
+                  </div>
                 </div>
               ))}
             </CardContent>

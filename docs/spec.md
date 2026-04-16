@@ -88,8 +88,8 @@ Source: `apps/api/prisma/schema.prisma`.
 
 ## 12. Nodes and skills (persisted)
 
-- **GET/POST `/api/nodes`**: list and create org-scoped nodes (prompt templates, allow lists). System-reserved name: `retrieve_documents` cannot be used as a user node name (see `node-naming` / routes).
-- **GET `/api/skills`**, **POST `/api/skills`**, deprecated **POST `/api/skills/create`**, **POST `/api/skills/install`**, **DELETE `/api/skills/install/:skillId`**: list/create/install/uninstall skills; nodes in the skill must exist and be accessible unless the name is the system retrieve step.
+- **GET/POST `/api/nodes`**, **PATCH `/api/nodes/:nodeId`**, **DELETE `/api/nodes/:nodeId`**: list, create, update (name is immutable), and delete org-scoped nodes. System-reserved name: `retrieve_documents` cannot be used as a user node name (see `node-naming` / routes). **DELETE** is rejected with **409** `NodeInUse` when any skill workflow in the same org still references that node by name; the JSON body includes `blocking_skills` (`skill_id`, `name`) and a clear `detail` message.
+- **GET `/api/skills`**, **POST `/api/skills`**, **PATCH `/api/skills/:skillId`**, **DELETE `/api/skills/:skillId`**, deprecated **POST `/api/skills/create`**, **POST `/api/skills/install`**, **DELETE `/api/skills/install/:skillId`**: list/create/update/delete skills (same visibility rules as list for PATCH/DELETE), install/uninstall per user; nodes in the skill must exist and be accessible unless the name is the system retrieve step. Deleting a skill cascades `UserSkill` installs.
 
 ## 13. Marketplace
 

@@ -61,3 +61,56 @@ export async function createNode(
   }
   return response.json() as Promise<{ node_id: string; name: string }>;
 }
+async function readErrorMessageWithDetails(response: Response): Promise<string> {
+  const text = await response.text();
+  try {
+    const parsed = JSON.parse(text) as {
+      error?: string;
+      detail?: string;
+      blocking_skills?: { skill_id: string; name: string }[];
+    };
+    const parts = [parsed.error, parsed.detail].filter(Boolean);
+    let msg = parts.length > 0 ? parts.join(" — ") : text || `HTTP ${response.status}`;
+    if (parsed.blocking_skills && parsed.blocking_skills.length > 0) {
+      const names = parsed.blocking_skills.map((b) => b.name).join(", ");
+      msg = `${msg} Blocking skills: ${names}.`;
+    }
+    return msg;
+  } catch {
+    return text || `HTTP ${response.status}`;
+  }
+}
+
+export async function updateNode(
+  accessToken: string,
+  nodeId: string,
+  body: {
+    description?: string | null;
+    prompt_template?: string;
+    allow_department_ids?: string[];
+    allow_role_slugs?: ("member" | "admin")[];
+  },
+): Promise<NodeDto> {
+  const response = await fetch(resolveApiUrl(`/api/nodes/${encodeURIComponent(nodeId)}`), {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessageWithDetails(response));
+  }
+  return response.json() as Promise<NodeDto>;
+}
+
+export async function deleteNode(accessToken: string, nodeId: string): Promise<void> {
+  const response = await fetch(resolveApiUrl(`/api/nodes/${encodeURIComponent(nodeId)}`), {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) {
+    throw new Error(await readErrorMessageWithDetails(response));
+  }
+}
