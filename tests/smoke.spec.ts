@@ -13,10 +13,13 @@ test.beforeEach(async ({ page }) => {
 test("sidebar navigation works", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByLabel("Primary").getByRole("link", { name: "Chat" }).click();
+  await page.getByLabel("Primary", { exact: true }).getByRole("link", { name: "Chat" }).click();
   await expect(page).toHaveURL(/\/$/);
 
-  await page.getByLabel("Primary").getByRole("link", { name: "Marketplace" }).click();
+  await page
+    .getByLabel("Primary", { exact: true })
+    .getByRole("link", { name: "Marketplace", exact: true })
+    .click();
   await expect(page).toHaveURL(/\/marketplace$/);
 });
 
@@ -46,8 +49,8 @@ test("chat can send a message and display assistant reply", async ({ page }) => 
   await page.getByPlaceholder("Message...").fill("Hello");
   await page.getByRole("button", { name: "Send" }).click();
 
-  await expect(page.getByText("Hello", { exact: true })).toBeVisible();
-  await expect(page.getByText("Echo: Hello")).toBeVisible();
+  await expect(page.getByLabel("Conversation").getByText("Hello", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Conversation").getByText("Echo: Hello")).toBeVisible();
   // After reply, the conversation is persisted and shows in the right sidebar.
   await expect(
     page.getByLabel("Chat history").getByText("Echo: Hello"),
