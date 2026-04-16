@@ -8,6 +8,7 @@ function baseState(overrides: Partial<AgentState> = {}): AgentState {
   return {
     query: "q",
     userId: "u1",
+    departmentId: "b0000001-0000-4000-8000-000000000001",
     orgScope: "o1",
     intermediate: {},
     ...overrides,
@@ -28,12 +29,28 @@ describe("isValidNodeName", () => {
   });
 });
 
+const defaultReply = "__default_agent_reply__";
+
 describe("buildSkillExecutionOrder", () => {
   it("returns original order when pipeline is unavailable", () => {
     expect(buildSkillExecutionOrder(null, ["summarize"])).toEqual(["summarize"]);
     expect(buildSkillExecutionOrder(null, ["retrieve_documents", "summarize"])).toEqual([
       "retrieve_documents",
       "summarize",
+    ]);
+  });
+
+  it("appends built-in completion when there are no user prompt nodes", () => {
+    expect(buildSkillExecutionOrder(null, [])).toEqual([defaultReply]);
+    expect(buildSkillExecutionOrder(null, ["retrieve_documents"])).toEqual([
+      "retrieve_documents",
+      defaultReply,
+    ]);
+    const pipeline = {} as DocumentPipeline;
+    expect(buildSkillExecutionOrder(pipeline, [])).toEqual(["retrieve_documents", defaultReply]);
+    expect(buildSkillExecutionOrder(pipeline, ["retrieve_documents"])).toEqual([
+      "retrieve_documents",
+      defaultReply,
     ]);
   });
 

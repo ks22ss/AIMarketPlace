@@ -77,7 +77,7 @@ export function createDocsRouter(deps: DocsRouterDeps): Router {
       }
 
       const rows = await deps.prisma.document.findMany({
-        where: { userId: authUser.userId },
+        where: { departmentId: authUser.departmentId },
         orderBy: { createdAt: "desc" },
       });
 
@@ -126,6 +126,7 @@ export function createDocsRouter(deps: DocsRouterDeps): Router {
         try {
           await deps.pipeline.deleteUserDocument({
             userId: authUser.userId,
+            departmentId: authUser.departmentId,
             documentId: parsedId.data,
           });
         } catch (error) {
@@ -153,6 +154,10 @@ export function createDocsRouter(deps: DocsRouterDeps): Router {
         return;
       }
       if (!row.userId || row.userId !== authUser.userId) {
+        response.status(403).json({ error: "Forbidden" });
+        return;
+      }
+      if (row.departmentId !== authUser.departmentId) {
         response.status(403).json({ error: "Forbidden" });
         return;
       }
@@ -190,12 +195,18 @@ export function createDocsRouter(deps: DocsRouterDeps): Router {
     try {
       const user = await deps.prisma.user.findUnique({
         where: { userId: authUser.userId },
-        select: { orgId: true },
+        select: { orgId: true, departmentId: true },
       });
+
+      if (!user || user.departmentId !== authUser.departmentId) {
+        response.status(403).json({ error: "Forbidden" });
+        return;
+      }
 
       const created = await deps.pipeline.createPresignedUpload({
         userId: authUser.userId,
-        orgId: user?.orgId ?? null,
+        orgId: user.orgId,
+        departmentId: user.departmentId,
         fileName: parsed.data.fileName,
         contentType: parsed.data.contentType,
       });
@@ -237,6 +248,7 @@ export function createDocsRouter(deps: DocsRouterDeps): Router {
     try {
       const result = await deps.pipeline.ingestDocument({
         userId: authUser.userId,
+        departmentId: authUser.departmentId,
         documentId: parsed.data.documentId,
       });
 
@@ -278,7 +290,7 @@ export function createDocsRouter(deps: DocsRouterDeps): Router {
 
     try {
       const chunks = await deps.pipeline.queryContext({
-        userId: authUser.userId,
+        departmentId: authUser.departmentId,
         query: parsed.data.query,
         limit: parsed.data.limit ?? 8,
       });

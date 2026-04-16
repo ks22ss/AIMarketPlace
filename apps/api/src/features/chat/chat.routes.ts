@@ -28,25 +28,6 @@ function parseSkillNodes(value: unknown): string[] {
   return parsed.success ? parsed.data : [];
 }
 
-async function resolveSkillForUser(
-  prisma: PrismaClient,
-  params: { org: string; skillId?: string },
-) {
-  if (params.skillId) {
-    return prisma.skill.findFirst({
-      where: {
-        skillId: params.skillId,
-        orgId: params.org,
-      },
-    });
-  }
-
-  return prisma.skill.findFirst({
-    where: { orgId: params.org },
-    orderBy: { createdAt: "desc" },
-  });
-}
-
 export function createChatRouter(deps: ChatRouterDeps): Router {
   const router = Router();
 
@@ -81,6 +62,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         select: {
           userId: true,
           orgId: true,
+          departmentId: true,
           role: true,
           department: { select: { name: true } },
         },
@@ -90,51 +72,56 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         return;
       }
 
+      if (user.departmentId !== authUser.departmentId) {
+        response.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+
       const org = effectiveOrgId(user);
-      const skill = await resolveSkillForUser(deps.prisma, {
-        org,
-        skillId: parsed.data.skill_id,
-      });
 
-      if (!skill) {
-        response.status(404).json({
-          error: "No skill found",
-          detail: "Create a skill in the Skill Builder or pass skill_id.",
+      let nodeNames: string[] = [];
+
+      if (parsed.data.skill_id) {
+        const skill = await deps.prisma.skill.findFirst({
+          where: {
+            skillId: parsed.data.skill_id,
+            orgId: org,
+          },
         });
-        return;
-      }
 
-      if (
-        !userMatchesAllowLists(
-          { role: normalizeUserRoleSlug(user.role), department: user.department.name },
-          skill.allowRole,
-          skill.allowDepartment,
-        )
-      ) {
-        response.status(403).json({ error: "Forbidden", detail: "You cannot run this skill." });
-        return;
-      }
+        if (!skill) {
+          response.status(404).json({
+            error: "Skill not found",
+            detail: "Check skill_id or pick another skill.",
+          });
+          return;
+        }
 
-      const installRow = await deps.prisma.userSkill.findUnique({
-        where: {
-          userId_skillId: { userId: user.userId, skillId: skill.skillId },
-        },
-      });
-      if (!installRow) {
-        response.status(403).json({
-          error: "Forbidden",
-          detail: "Install this skill from the Marketplace before running it in chat.",
+        if (
+          !userMatchesAllowLists(
+            { role: normalizeUserRoleSlug(user.role), department: user.department.name },
+            skill.allowRole,
+            skill.allowDepartment,
+          )
+        ) {
+          response.status(403).json({ error: "Forbidden", detail: "You cannot run this skill." });
+          return;
+        }
+
+        const installRow = await deps.prisma.userSkill.findUnique({
+          where: {
+            userId_skillId: { userId: user.userId, skillId: skill.skillId },
+          },
         });
-        return;
-      }
+        if (!installRow) {
+          response.status(403).json({
+            error: "Forbidden",
+            detail: "Install this skill from the Marketplace before using it in chat.",
+          });
+          return;
+        }
 
-      const nodeNames = parseSkillNodes(skill.skillNodes);
-      if (nodeNames.length === 0) {
-        response.status(400).json({
-          error: "Skill has no nodes",
-          detail: "Update the skill to include at least one workflow step.",
-        });
-        return;
+        nodeNames = parseSkillNodes(skill.skillNodes);
       }
 
       const traceId = randomUUID();
@@ -150,15 +137,16 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         {
           query: parsed.data.message,
           userId: user.userId,
+          departmentId: user.departmentId,
           orgScope: org,
         },
       );
 
+      // Never return `context` (raw RAG chunks) to the client — only the final LLM reply.
       const reply =
-        finalState.output ??
-        (typeof finalState.context === "string" && finalState.context.length > 0
-          ? finalState.context
-          : "(No output)");
+        typeof finalState.output === "string" && finalState.output.trim().length > 0
+          ? finalState.output.trim()
+          : "(No output)";
 
       const payload: ChatPostResponse = {
         reply,

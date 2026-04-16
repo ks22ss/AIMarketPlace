@@ -12,6 +12,7 @@ model Department {
   departmentId String @id @default(uuid()) @map("department_id") @db.Uuid
   name         String @unique
   users        User[]
+  documents    Document[]
 
   @@map("departments")
 }
@@ -115,14 +116,16 @@ model SkillTool {
 
 /// Spec section 4 - documents
 model Document {
-  docId     String   @id @default(uuid()) @map("doc_id") @db.Uuid
-  userId    String?  @map("user_id") @db.Uuid
-  orgId     String?  @map("org_id") @db.Uuid
-  s3Url     String   @map("s3_url")
-  metadata  Json     @default("{}")
-  createdAt DateTime @default(now()) @map("created_at")
+  docId        String   @id @default(uuid()) @map("doc_id") @db.Uuid
+  userId       String?  @map("user_id") @db.Uuid
+  departmentId String   @map("department_id") @db.Uuid
+  orgId        String?  @map("org_id") @db.Uuid
+  s3Url        String   @map("s3_url")
+  metadata     Json     @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at")
 
-  user User? @relation(fields: [userId], references: [userId], onDelete: SetNull)
+  user       User?      @relation(fields: [userId], references: [userId], onDelete: SetNull)
+  department Department @relation(fields: [departmentId], references: [departmentId])
 
   @@map("documents")
 }

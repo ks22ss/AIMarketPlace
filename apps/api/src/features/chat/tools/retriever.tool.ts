@@ -20,18 +20,18 @@ function formatChunks(
 }
 
 /**
- * LangChain tool: semantic search over the current user's indexed chunks.
- * Pass `config.configurable.userId` at invoke time (trusted server-side id).
+ * LangChain tool: semantic search over the current user's department indexed chunks.
+ * Pass `config.configurable.departmentId` at invoke time (trusted server-side id).
  */
 export function createRetrieverTool(pipeline: DocumentPipeline, chunkLimit: number = defaultChunkLimit) {
   return tool(
     async (input: { query: string }, config) => {
-      const userId = config?.configurable?.userId as string | undefined;
-      if (!userId) {
-        throw new Error("retrieve_documents requires configurable.userId");
+      const departmentId = config?.configurable?.departmentId as string | undefined;
+      if (!departmentId) {
+        throw new Error("retrieve_documents requires configurable.departmentId");
       }
       const chunks = await pipeline.queryContext({
-        userId,
+        departmentId,
         query: input.query,
         limit: chunkLimit,
       });
@@ -40,8 +40,8 @@ export function createRetrieverTool(pipeline: DocumentPipeline, chunkLimit: numb
     {
       name: "retrieve_documents",
       description:
-        "Search the signed-in user's uploaded documents for passages relevant to a search query. " +
-        "Returns excerpt text with doc and chunk ids. Use before answering factual questions about their files.",
+        "Search this department's uploaded documents for passages relevant to a search query. " +
+        "Returns excerpt text with doc and chunk ids. Use before answering factual questions about internal files.",
       schema: z.object({
         query: z.string().min(1).max(2000).describe("Search query derived from the user's question"),
       }),

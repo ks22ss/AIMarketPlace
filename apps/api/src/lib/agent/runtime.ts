@@ -3,6 +3,7 @@ import { HumanMessage } from "@langchain/core/messages";
 import type { PrismaClient } from "@prisma/client";
 
 import type { DocumentPipeline } from "../../features/docs/document.pipeline.js";
+import { withTimeout } from "../with-timeout.js";
 
 export type AgentState = {
   query: string;
@@ -10,6 +11,7 @@ export type AgentState = {
   output?: string;
   intermediate: Record<string, unknown>;
   userId: string;
+  departmentId: string;
   /** UUID string used for node/skill tenancy (user.orgId ?? user.userId). */
   orgScope: string;
 };
@@ -24,20 +26,47 @@ export type RunSkillDeps = {
 
 const SYSTEM_RETRIEVE = "retrieve_documents";
 
+/** Built-in final step when a skill has no workflow nodes (skills/nodes are optional). */
+const DEFAULT_COMPLETION_NODE = "__default_agent_reply__";
+
+const DEFAULT_AGENT_PROMPT_TEMPLATE = [
+  "You are a helpful assistant for an internal AI marketplace.",
+  "When document context is provided below, ground your answer in it; do not invent unsupported facts.",
+  "If context is empty or irrelevant, answer from general knowledge when appropriate.",
+  "",
+  "--- Document context (may be empty) ---",
+  "{{context}}",
+  "",
+  "--- User question ---",
+  "{{query}}",
+  "",
+  "Reply concisely.",
+].join("\n");
+
 /**
- * When the document pipeline is enabled, run exactly one vector search before prompt nodes.
+ * When the document pipeline is enabled, run exactly one vector search before skill nodes.
  * Strips duplicate `retrieve_documents` entries from the skill definition so RAG is not skipped
  * when builders forget to add the system step.
+ * If there are no user-defined prompt nodes, appends a built-in completion step so the LLM always runs.
  */
 export function buildSkillExecutionOrder(
   pipeline: DocumentPipeline | null,
   skillNodeNames: string[],
 ): string[] {
+  let steps: string[];
   if (!pipeline) {
-    return skillNodeNames;
+    steps = [...skillNodeNames];
+  } else {
+    const withoutRetrieve = skillNodeNames.filter((name) => name !== SYSTEM_RETRIEVE);
+    steps = [SYSTEM_RETRIEVE, ...withoutRetrieve];
   }
-  const withoutRetrieve = skillNodeNames.filter((name) => name !== SYSTEM_RETRIEVE);
-  return [SYSTEM_RETRIEVE, ...withoutRetrieve];
+
+  const hasUserPrompt = steps.some((name) => !isSystemNodeName(name));
+  if (!hasUserPrompt) {
+    steps = [...steps, DEFAULT_COMPLETION_NODE];
+  }
+
+  return steps;
 }
 
 export function injectVariables(template: string, state: AgentState): string {
@@ -51,11 +80,12 @@ export function injectVariables(template: string, state: AgentState): string {
 export async function runSkill(
   deps: RunSkillDeps,
   skillNodeNames: string[],
-  initial: Pick<AgentState, "query" | "userId" | "orgScope">,
+  initial: Pick<AgentState, "query" | "userId" | "departmentId" | "orgScope">,
 ): Promise<AgentState> {
   let state: AgentState = {
     query: initial.query,
     userId: initial.userId,
+    departmentId: initial.departmentId,
     orgScope: initial.orgScope,
     intermediate: {},
   };
@@ -70,6 +100,10 @@ export async function runSkill(
 async function executeNode(deps: RunSkillDeps, nodeName: string, state: AgentState): Promise<AgentState> {
   if (nodeName === SYSTEM_RETRIEVE) {
     return retrieveDocuments(deps, state);
+  }
+
+  if (nodeName === DEFAULT_COMPLETION_NODE) {
+    return runPromptNode(deps, { name: DEFAULT_COMPLETION_NODE, promptTemplate: DEFAULT_AGENT_PROMPT_TEMPLATE }, state);
   }
 
   const node = await deps.prisma.node.findFirst({
@@ -87,18 +121,31 @@ async function retrieveDocuments(deps: RunSkillDeps, state: AgentState): Promise
     return { ...state, context: "" };
   }
 
-  const results = await deps.pipeline.queryContext({
-    userId: state.userId,
-    query: state.query,
-    limit: 12,
-  });
+  try {
+    const results = await withTimeout(
+      deps.pipeline.queryContext({
+        departmentId: state.departmentId,
+        query: state.query,
+        limit: 12,
+      }),
+      120_000,
+      "Document retrieval (embedding + Weaviate)",
+    );
 
-  const context = results.map((r) => r.text).join("\n\n");
-  return {
-    ...state,
-    context,
-    intermediate: { ...state.intermediate, [SYSTEM_RETRIEVE]: results },
-  };
+    const context = results.map((r) => r.text).join("\n\n");
+    return {
+      ...state,
+      context,
+      intermediate: { ...state.intermediate, [SYSTEM_RETRIEVE]: results },
+    };
+  } catch (error) {
+    console.error("retrieve_documents failed or timed out", error);
+    return {
+      ...state,
+      context: "",
+      intermediate: { ...state.intermediate, [SYSTEM_RETRIEVE]: [] },
+    };
+  }
 }
 
 async function runPromptNode(
@@ -147,10 +194,14 @@ function aiMessageContentToString(content: unknown): string {
 }
 
 async function callLlm(chatModel: ChatOpenAI, prompt: string): Promise<string> {
-  const message = await chatModel.invoke([new HumanMessage(prompt)]);
+  const message = await withTimeout(
+    chatModel.invoke([new HumanMessage(prompt)]),
+    120_000,
+    "LLM completion",
+  );
   return aiMessageContentToString(message.content).trim();
 }
 
 export function isSystemNodeName(name: string): boolean {
-  return name === SYSTEM_RETRIEVE;
+  return name === SYSTEM_RETRIEVE || name === DEFAULT_COMPLETION_NODE;
 }

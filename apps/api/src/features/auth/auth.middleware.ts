@@ -21,7 +21,11 @@ export function requireAuth(
 
   try {
     const payload = verifyAccessToken(token);
-    request.authUser = { userId: payload.sub, email: payload.email };
+    request.authUser = {
+      userId: payload.sub,
+      email: payload.email,
+      departmentId: payload.departmentId,
+    };
     next();
   } catch {
     response.status(401).json({ error: "Invalid or expired token" });

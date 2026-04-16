@@ -8,6 +8,7 @@ import { createRetrieverTool } from "./tools/retriever.tool.js";
 const AgentState = Annotation.Root({
   userMessage: Annotation<string>(),
   userId: Annotation<string>(),
+  departmentId: Annotation<string>(),
   /** Set by the planner node (single skill in Phase 3). */
   plannedSkill: Annotation<string>(),
   retrievalContext: Annotation<string>(),
@@ -35,7 +36,7 @@ export function compileRagAgentGraph(
   async function retrieveNode(state: RagAgentState): Promise<Partial<RagAgentState>> {
     const text = await retrieverTool.invoke(
       { query: state.userMessage },
-      { configurable: { userId: state.userId } },
+      { configurable: { departmentId: state.departmentId } },
     );
     return { retrievalContext: String(text) };
   }

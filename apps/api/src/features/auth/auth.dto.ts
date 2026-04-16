@@ -21,6 +21,7 @@ export type PublicUser = {
   email: string;
   role: string;
   department: string;
+  departmentId: string;
   orgId: string | null;
   createdAt: string;
 };
@@ -31,6 +32,7 @@ export type UserPublicRow = {
   email: string;
   role: string;
   department: string;
+  department_id: string;
   org_id: string | null;
   created_at: Date;
 };
@@ -45,6 +47,7 @@ export function mapRowToPublicUser(row: UserPublicRow): PublicUser {
     email: row.email,
     role: normalizeUserRoleSlug(row.role),
     department: row.department,
+    departmentId: row.department_id,
     orgId: row.org_id,
     createdAt: row.created_at.toISOString(),
   };

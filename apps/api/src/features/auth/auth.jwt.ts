@@ -18,11 +18,12 @@ const audience = "aimarketplace-web";
 export type AccessTokenPayload = {
   sub: string;
   email: string;
+  departmentId: string;
 };
 
 export function signAccessToken(payload: AccessTokenPayload): string {
   return jwt.sign(
-    { email: payload.email },
+    { email: payload.email, departmentId: payload.departmentId },
     secret,
     {
       subject: payload.sub,
@@ -39,11 +40,16 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
     issuer,
     audience,
     algorithms: [algorithm],
-  }) as jwt.JwtPayload & { email?: string };
+  }) as jwt.JwtPayload & { email?: string; departmentId?: string };
 
   if (!decoded.sub || typeof decoded.email !== "string") {
     throw new Error("Invalid token payload");
   }
 
-  return { sub: decoded.sub, email: decoded.email };
+  const departmentId = decoded.departmentId;
+  if (typeof departmentId !== "string" || !departmentId) {
+    throw new Error("Invalid token payload");
+  }
+
+  return { sub: decoded.sub, email: decoded.email, departmentId };
 }

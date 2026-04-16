@@ -6,6 +6,7 @@ export type MockUser = {
   orgId?: string | null;
   role: string;
   department: { name: string };
+  departmentId: string;
 };
 
 export type MarketplaceSkill = {
@@ -112,6 +113,7 @@ export function createDefaultMockState(): MockState {
       orgId: "org_1",
       role: "member",
       department: { name: "Engineering" },
+      departmentId: "dept_eng",
     },
     roles: [
       { slug: "member", name: "Member" },

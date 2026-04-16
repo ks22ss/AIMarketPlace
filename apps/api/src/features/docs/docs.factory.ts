@@ -51,7 +51,13 @@ export function createDocumentPipelineFromEnv(prisma: PrismaClient) {
     bucket: requireEnv("S3_BUCKET"),
   });
 
-  const weaviate = createWeaviateStore({ baseUrl: weaviateUrl });
+  const weaviateTimeoutParsed = Number(process.env.WEAVIATE_REQUEST_TIMEOUT_MS?.trim());
+  const weaviate = createWeaviateStore({
+    baseUrl: weaviateUrl,
+    ...(Number.isFinite(weaviateTimeoutParsed) && weaviateTimeoutParsed > 0
+      ? { requestTimeoutMs: weaviateTimeoutParsed }
+      : {}),
+  });
   const embeddings = createEmbeddingClient({
     apiKey: embeddingApiKey,
     baseUrl: embeddingBaseUrl,

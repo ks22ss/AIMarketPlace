@@ -3,9 +3,9 @@ const documentChunkClass = "DocumentChunk";
 /** UUID-shaped string safe to inline in GraphQL (hex + hyphens only). */
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function assertFilterUserId(value: string): string {
+function assertFilterUuid(value: string): string {
   if (!uuidPattern.test(value)) {
-    throw new Error("Invalid user id for Weaviate filter");
+    throw new Error("Invalid UUID for Weaviate filter");
   }
   return value;
 }
@@ -19,6 +19,8 @@ function clampGetLimit(value: number): number {
 
 export type WeaviateStoreConfig = {
   baseUrl: string;
+  /** Per-request HTTP timeout (ms). Prevents hung chat when Weaviate is unreachable. */
+  requestTimeoutMs?: number;
 };
 
 type WhereFilter =
@@ -34,9 +36,25 @@ type WhereFilter =
 
 export function createWeaviateStore(config: WeaviateStoreConfig) {
   const base = config.baseUrl.replace(/\/+$/, "");
+  const requestTimeoutMs = config.requestTimeoutMs ?? 45_000;
+
+  async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(`Weaviate request timed out after ${Math.round(requestTimeoutMs / 1000)}s (${url})`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   async function requestJson(path: string, init?: RequestInit): Promise<unknown> {
-    const response = await fetch(`${base}${path}`, init);
+    const response = await fetchWithTimeout(`${base}${path}`, init);
     const text = await response.text();
     let body: unknown = null;
     if (text) {
@@ -54,9 +72,31 @@ export function createWeaviateStore(config: WeaviateStoreConfig) {
     return body;
   }
 
+  async function ensureDepartmentIdProperty(): Promise<void> {
+    const existing = await fetchWithTimeout(`${base}/v1/schema/${documentChunkClass}`);
+    if (!existing.ok) {
+      return;
+    }
+    const schema = (await existing.json()) as { properties?: { name: string }[] };
+    const hasDept = schema.properties?.some((p) => p.name === "department_id") ?? false;
+    if (hasDept) {
+      return;
+    }
+    try {
+      await requestJson(`/v1/schema/${documentChunkClass}/properties`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "department_id", dataType: ["text"] }),
+      });
+    } catch (error) {
+      console.warn("weaviate: could not add department_id property (may already exist)", error);
+    }
+  }
+
   async function ensureDocumentChunkClass(): Promise<void> {
-    const existing = await fetch(`${base}/v1/schema/${documentChunkClass}`);
+    const existing = await fetchWithTimeout(`${base}/v1/schema/${documentChunkClass}`);
     if (existing.ok) {
+      await ensureDepartmentIdProperty();
       return;
     }
 
@@ -71,23 +111,23 @@ export function createWeaviateStore(config: WeaviateStoreConfig) {
           { name: "text", dataType: ["text"] },
           { name: "user_id", dataType: ["text"] },
           { name: "org_id", dataType: ["text"] },
+          { name: "department_id", dataType: ["text"] },
           { name: "doc_id", dataType: ["text"] },
           { name: "chunk_index", dataType: ["int"] },
         ],
       }),
     });
+    await ensureDepartmentIdProperty();
   }
 
-  async function deleteChunksForDocument(documentId: string, userId: string): Promise<void> {
+  async function deleteChunksForDocument(documentId: string): Promise<void> {
     const where: WhereFilter = {
-      operator: "And",
-      operands: [
-        { path: ["doc_id"], operator: "Equal", valueText: documentId },
-        { path: ["user_id"], operator: "Equal", valueText: userId },
-      ],
+      path: ["doc_id"],
+      operator: "Equal",
+      valueText: documentId,
     };
 
-    const response = await fetch(`${base}/v1/batch/objects`, {
+    const response = await fetchWithTimeout(`${base}/v1/batch/objects`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -110,6 +150,7 @@ export function createWeaviateStore(config: WeaviateStoreConfig) {
       text: string;
       userId: string;
       orgId: string;
+      departmentId: string;
       documentId: string;
       chunkIndex: number;
     }>,
@@ -124,6 +165,7 @@ export function createWeaviateStore(config: WeaviateStoreConfig) {
         text: item.text,
         user_id: item.userId,
         org_id: item.orgId,
+        department_id: item.departmentId,
         doc_id: item.documentId,
         chunk_index: item.chunkIndex,
       },
@@ -139,10 +181,10 @@ export function createWeaviateStore(config: WeaviateStoreConfig) {
 
   async function queryNearest(params: {
     vector: number[];
-    userId: string;
+    departmentId: string;
     limit: number;
   }): Promise<Array<{ text: string; doc_id: string; chunk_index: number; distance: number }>> {
-    const safeUserId = assertFilterUserId(params.userId);
+    const safeDepartmentId = assertFilterUuid(params.departmentId);
     const safeLimit = clampGetLimit(params.limit);
 
     // Weaviate 1.27+ GraphQL: `where.valueText` is typed per-class; String! variables are rejected.
@@ -153,9 +195,9 @@ export function createWeaviateStore(config: WeaviateStoreConfig) {
           ${documentChunkClass}(
             nearVector: { vector: $vector }
             where: {
-              path: ["user_id"]
+              path: ["department_id"]
               operator: Equal
-              valueText: "${safeUserId}"
+              valueText: "${safeDepartmentId}"
             }
             limit: ${safeLimit}
           ) {
