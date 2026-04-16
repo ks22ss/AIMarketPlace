@@ -203,5 +203,5 @@ async function callLlm(chatModel: ChatOpenAI, prompt: string): Promise<string> {
 }
 
 export function isSystemNodeName(name: string): boolean {
-  return name === SYSTEM_RETRIEVE;
+  return name === SYSTEM_RETRIEVE || name === DEFAULT_COMPLETION_NODE;
 }

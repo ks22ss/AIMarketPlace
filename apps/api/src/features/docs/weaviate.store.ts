@@ -3,9 +3,9 @@ const documentChunkClass = "DocumentChunk";
 /** UUID-shaped string safe to inline in GraphQL (hex + hyphens only). */
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function assertFilterUserId(value: string): string {
+function assertFilterUuid(value: string): string {
   if (!uuidPattern.test(value)) {
-    throw new Error("Invalid user id for Weaviate filter");
+    throw new Error("Invalid UUID for Weaviate filter");
   }
   return value;
 }
@@ -184,7 +184,7 @@ export function createWeaviateStore(config: WeaviateStoreConfig) {
     departmentId: string;
     limit: number;
   }): Promise<Array<{ text: string; doc_id: string; chunk_index: number; distance: number }>> {
-    const safeDepartmentId = assertFilterUserId(params.departmentId);
+    const safeDepartmentId = assertFilterUuid(params.departmentId);
     const safeLimit = clampGetLimit(params.limit);
 
     // Weaviate 1.27+ GraphQL: `where.valueText` is typed per-class; String! variables are rejected.

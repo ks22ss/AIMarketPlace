@@ -36,7 +36,7 @@ export function compileRagAgentGraph(
   async function retrieveNode(state: RagAgentState): Promise<Partial<RagAgentState>> {
     const text = await retrieverTool.invoke(
       { query: state.userMessage },
-      { configurable: { userId: state.userId, departmentId: state.departmentId } },
+      { configurable: { departmentId: state.departmentId } },
     );
     return { retrievalContext: String(text) };
   }
