@@ -168,23 +168,50 @@ describe("runSkill (LangGraph)", () => {
   });
 
   it("degrades gracefully when retrieval fails", async () => {
-    const chatModel = makeMockChatModel("fallback answer");
-    const pipeline = {
-      queryContext: vi.fn().mockRejectedValue(new Error("Weaviate timeout")),
-    } as unknown as DocumentPipeline;
-    const prisma = makeMockPrisma({ summarize: "{{query}}" });
-    const deps: RunSkillDeps = { prisma, pipeline, chatModel, orgId: "org1" };
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const chatModel = makeMockChatModel("fallback answer");
+      const pipeline = {
+        queryContext: vi.fn().mockRejectedValue(new Error("Weaviate timeout")),
+      } as unknown as DocumentPipeline;
+      const prisma = makeMockPrisma({ summarize: "{{query}}" });
+      const deps: RunSkillDeps = { prisma, pipeline, chatModel, orgId: "org1" };
 
-    const result = await runSkill(deps, ["summarize"], {
-      query: "test",
+      const result = await runSkill(deps, ["summarize"], {
+        query: "test",
+        userId: "u1",
+        departmentId: "d1",
+        orgScope: "org1",
+      });
+
+      expect(result.context).toBe("");
+      expect(result.output).toBe("fallback answer");
+      expect(result.intermediate).toHaveProperty("retrieve_documents");
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it("does not mark retrieval as ran when pipeline is disabled but skill lists retrieve_documents", async () => {
+    const chatModel = makeMockChatModel("ok");
+    const deps: RunSkillDeps = {
+      prisma: makeMockPrisma(),
+      pipeline: null,
+      chatModel,
+      orgId: "org1",
+    };
+
+    const result = await runSkill(deps, ["retrieve_documents"], {
+      query: "hello",
       userId: "u1",
       departmentId: "d1",
       orgScope: "org1",
     });
 
-    expect(result.context).toBe("");
-    expect(result.output).toBe("fallback answer");
-    expect(result.intermediate).toHaveProperty("retrieve_documents");
+    expect(result.intermediate).not.toHaveProperty("retrieve_documents");
+    expect(chatModel.invoke).toHaveBeenCalledTimes(1);
+    const prompt = (chatModel.invoke as ReturnType<typeof vi.fn>).mock.calls[0][0][0].content as string;
+    expect(prompt).not.toMatch(/No matching indexed document excerpts/);
   });
 
   it("executes multiple prompt nodes in order", async () => {

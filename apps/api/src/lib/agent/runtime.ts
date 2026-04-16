@@ -109,7 +109,9 @@ function retrieveDocumentsNode(deps: RunSkillDeps) {
   return async (state: AgentState): Promise<Partial<AgentState>> => {
     const prev = state.intermediate ?? {};
     if (!deps.pipeline) {
-      return { context: "", intermediate: { ...prev, [SYSTEM_RETRIEVE]: [] } };
+      // Match pre-LangGraph behavior: no pipeline means retrieval did not run, so do not
+      // record `retrieve_documents` in `intermediate` (avoids false "no excerpts" prompts).
+      return { context: "" };
     }
 
     try {
