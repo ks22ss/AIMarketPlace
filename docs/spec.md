@@ -114,11 +114,9 @@ AWS resources include an S3 uploads bucket with public access blocked, default *
 
 ## 18. Frontend routes (`apps/web/src/main.tsx`)
 
-Authenticated shell: `/` (Chat), `/nodes`, `/skills`, `/documents`, `/marketplace`. Auth routes: `/login`, `/register`.
+Authenticated shell: `/` (Chat), `/chat` (legacy alias for Chat), `/nodes`, `/skills`, `/documents`, `/marketplace`. Auth routes: `/login`, `/register`.
 
 Legacy paths redirect:
-
-- `/chat` → `/`
 - `/skills/build` → `/skills`
 - `/docs/rag` → `/documents`
 - `/nodes/build` → `/nodes`

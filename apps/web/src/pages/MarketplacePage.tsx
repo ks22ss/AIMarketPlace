@@ -243,7 +243,7 @@ export function MarketplacePage() {
                       </div>
                       <Button asChild className="shrink-0 sm:w-auto" variant="secondary">
                         <Link
-                          to={`/chat?skill_id=${encodeURIComponent(skill.skill_id)}`}
+                          to={`/?skill_id=${encodeURIComponent(skill.skill_id)}`}
                           className="inline-flex items-center gap-2"
                         >
                           <MessageSquareIcon className="size-4 shrink-0" aria-hidden />

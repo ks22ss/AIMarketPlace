@@ -27,7 +27,7 @@ createRoot(document.getElementById("root")!).render(
           <Route element={<RequireAuth />}>
             <Route element={<AppLayout />}>
               <Route path="/" element={<ChatPage />} />
-              <Route path="/chat" element={<Navigate to="/" replace />} />
+              <Route path="/chat" element={<ChatPage />} />
               <Route path="/nodes" element={<NodeBuilderPage />} />
               <Route path="/skills" element={<SkillBuilderPage />} />
               <Route path="/documents" element={<DocsRagPage />} />

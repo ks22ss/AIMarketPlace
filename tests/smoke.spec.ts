@@ -14,7 +14,7 @@ test("sidebar navigation works", async ({ page }) => {
   await page.goto("/");
 
   await page.getByLabel("Primary").getByRole("link", { name: "Chat" }).click();
-  await expect(page).toHaveURL(/\/chat$/);
+  await expect(page).toHaveURL(/\/$/);
 
   await page.getByLabel("Primary").getByRole("link", { name: "Marketplace" }).click();
   await expect(page).toHaveURL(/\/marketplace$/);
@@ -35,11 +35,11 @@ test("marketplace can install a skill and deep-link to chat", async ({ page }) =
 
   // Start chat on an installed skill.
   await page.getByRole("link", { name: "Start Chat" }).first().click();
-  await expect(page).toHaveURL(/\/chat\?skill_id=/);
+  await expect(page).toHaveURL(/\/\?skill_id=/);
 });
 
 test("chat can send a message and display assistant reply", async ({ page }) => {
-  await page.goto("/chat");
+  await page.goto("/");
 
   await expect(page.getByText("Conversation")).toBeVisible();
 
