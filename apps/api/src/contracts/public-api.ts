@@ -26,7 +26,7 @@ export type ChatPostResponse = {
   traceId: string;
 };
 
-/** POST /api/nodes — request body schema for create. */
+/** POST /api/nodes ??request body schema for create. */
 export const nodeCreateBodySchema = z.object({
   name: z.string().min(1).max(120),
   description: z.string().max(8000).optional().nullable(),
@@ -71,6 +71,8 @@ export type SkillSummaryDto = {
   org_id: string | null;
   created_at: string;
   access_summary: string;
+  allow_role: string[];
+  allow_department: string[];
 };
 
 export type SkillsListResponse = {
@@ -121,7 +123,7 @@ export type SkillUninstallResponse = {
 export const skillCreateBodySchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(8000).optional().nullable(),
-  /** Ordered node names (1–10), e.g. ["retrieve_documents","summarize"]. */
+  /** Ordered node names (1??0), e.g. ["retrieve_documents","summarize"]. */
   nodes: z.array(z.string().min(1).max(200)).min(1).max(10),
   content: z.record(z.string(), z.unknown()).optional(),
   /** Empty / omitted = all departments in org. */
@@ -131,6 +133,98 @@ export const skillCreateBodySchema = z.object({
 });
 
 export type SkillCreateBody = z.infer<typeof skillCreateBodySchema>;
+
+
+/** PATCH /api/nodes/:nodeId — partial update (name is immutable). */
+export const nodeUpdateBodySchema = z
+  .object({
+    description: z.string().max(8000).optional().nullable(),
+    prompt_template: z.string().min(1).max(24_000).optional(),
+    allow_role: z.array(z.string().min(1).max(64)).max(32).optional(),
+    allow_department: z.array(z.string().min(1).max(128)).max(32).optional(),
+    allow_department_ids: z.array(z.string().uuid()).max(32).optional(),
+    allow_role_slugs: z.array(z.enum(["member", "admin"])).max(32).optional(),
+  })
+  .refine(
+    (d) =>
+      d.description !== undefined ||
+      d.prompt_template !== undefined ||
+      d.allow_role !== undefined ||
+      d.allow_department !== undefined ||
+      d.allow_department_ids !== undefined ||
+      d.allow_role_slugs !== undefined,
+    { message: "At least one field is required" },
+  )
+  .superRefine((d, ctx) => {
+    const hasNewDept = d.allow_department_ids !== undefined;
+    const hasNewRole = d.allow_role_slugs !== undefined;
+    if (hasNewDept !== hasNewRole) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "allow_department_ids and allow_role_slugs must both be present when updating node access (use empty arrays for no restriction).",
+      });
+    }
+    const hasLegacyDept = d.allow_department !== undefined;
+    const hasLegacyRole = d.allow_role !== undefined;
+    if (hasLegacyDept !== hasLegacyRole) {
+      ctx.addIssue({
+        code: "custom",
+        message: "allow_department and allow_role must both be present when using legacy access updates.",
+      });
+    }
+  });
+
+export type NodeUpdateBody = z.infer<typeof nodeUpdateBodySchema>;
+
+/** PATCH /api/skills/:skillId */
+export const skillUpdateBodySchema = skillCreateBodySchema
+  .partial()
+  .refine(
+    (d) =>
+      d.name !== undefined ||
+      d.description !== undefined ||
+      d.nodes !== undefined ||
+      d.content !== undefined ||
+      d.allow_department_ids !== undefined ||
+      d.allow_role_slugs !== undefined,
+    { message: "At least one field is required" },
+  )
+  .refine((d) => d.nodes === undefined || (d.nodes.length >= 1 && d.nodes.length <= 10), {
+    message: "nodes must contain between 1 and 10 steps when provided",
+  })
+  .superRefine((d, ctx) => {
+    const hasNewDept = d.allow_department_ids !== undefined;
+    const hasNewRole = d.allow_role_slugs !== undefined;
+    if (hasNewDept !== hasNewRole) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "allow_department_ids and allow_role_slugs must both be present when updating skill access (use empty arrays for no restriction).",
+      });
+    }
+  });
+
+export type SkillUpdateBody = z.infer<typeof skillUpdateBodySchema>;
+
+export type SkillUpdateResponse = {
+  skill_id: string;
+  name: string;
+  version: number;
+  nodes: string[];
+};
+
+export type SkillDeleteResponse = {
+  deleted: true;
+  skill_id: string;
+};
+
+export type NodeUpdateResponse = NodeDto;
+
+export type NodeDeleteResponse = {
+  deleted: true;
+  node_id: string;
+};
 
 export type SkillCreateResponse = {
   skill_id: string;
@@ -166,7 +260,7 @@ export type ToolRegisterResponse = {
   type: string;
 };
 
-/** GET /api/docs — documents in the signed-in user's department (Postgres + S3 key + ingest metadata). */
+/** GET /api/docs ??documents in the signed-in user's department (Postgres + S3 key + ingest metadata). */
 export type DocumentSummaryDto = {
   document_id: string;
   created_at: string;
@@ -221,7 +315,7 @@ export type DocsIngestResponse = {
   chunkCount: number;
 };
 
-/** POST /api/docs/query — embed query and return nearest chunks (RAG context). */
+/** POST /api/docs/query ??embed query and return nearest chunks (RAG context). */
 export const docsQueryBodySchema = z.object({
   query: z.string().min(1).max(4000),
   limit: z.number().int().min(1).max(20).optional(),

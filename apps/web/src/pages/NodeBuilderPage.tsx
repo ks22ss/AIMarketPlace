@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Loader2Icon } from "lucide-react";
+import { Loader2Icon, PencilIcon, Trash2Icon } from "lucide-react";
 
 import { useAuth } from "@/auth/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createNode, listNodes, type NodeDto } from "@/lib/nodesClient";
+import { createNode, deleteNode, listNodes, updateNode, type NodeDto } from "@/lib/nodesClient";
 import { listDepartments, listRoles, type DepartmentOption, type RoleOption } from "@/lib/referenceClient";
 
 const textareaClass =
@@ -33,6 +33,7 @@ export function NodeBuilderPage() {
   const [refError, setRefError] = useState<string | null>(null);
   const [allowDepartmentIds, setAllowDepartmentIds] = useState<string[]>([]);
   const [allowRoleSlugs, setAllowRoleSlugs] = useState<("member" | "admin")[]>([]);
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!accessToken) {
@@ -72,30 +73,102 @@ export function NodeBuilderPage() {
     setAllowRoleSlugs((prev) => (prev.includes(slug) ? prev.filter((x) => x !== slug) : [...prev, slug]));
   }
 
+  function beginEditNode(n: NodeDto): void {
+    setEditingNodeId(n.node_id);
+    setName(n.name);
+    setDescription(n.description ?? "");
+    setPromptTemplate(n.prompt_template);
+    const deptIds = departments.filter((d) => n.allow_department.includes(d.name)).map((d) => d.id);
+    setAllowDepartmentIds(deptIds);
+    const roles = n.allow_role.filter((r): r is "member" | "admin" => r === "member" || r === "admin");
+    setAllowRoleSlugs(roles);
+    setSaveMessage(null);
+  }
+
+  function cancelEditNode(): void {
+    setEditingNodeId(null);
+    setName("");
+    setDescription("");
+    setPromptTemplate("Summarize:\n\n{{context}}");
+    setAllowDepartmentIds([]);
+    setAllowRoleSlugs([]);
+    setSaveMessage(null);
+  }
+
+  const removeNode = useCallback(
+    async (nodeId: string) => {
+      if (!accessToken) {
+        return;
+      }
+      if (!window.confirm("Delete this node? It must not be used in any skill workflow.")) {
+        return;
+      }
+      setSaveMessage(null);
+      try {
+        await deleteNode(accessToken, nodeId);
+        if (editingNodeId === nodeId) {
+          cancelEditNode();
+        }
+        await refresh();
+      } catch (e: unknown) {
+        setSaveMessage(e instanceof Error ? e.message : "Delete failed");
+      }
+    },
+    [accessToken, editingNodeId, refresh],
+  );
+
   const submit = useCallback(async () => {
     if (!accessToken || saving) {
+      return;
+    }
+    if (!editingNodeId && !name.trim()) {
       return;
     }
     setSaving(true);
     setSaveMessage(null);
     try {
-      const created = await createNode(accessToken, {
-        name: name.trim(),
-        description: description.trim() || null,
-        prompt_template: promptTemplate,
-        ...(allowDepartmentIds.length > 0 ? { allow_department_ids: allowDepartmentIds } : {}),
-        ...(allowRoleSlugs.length > 0 ? { allow_role_slugs: allowRoleSlugs } : {}),
-      });
-      setSaveMessage(`Created node "${created.name}" (${created.node_id})`);
-      setName("");
-      setDescription("");
+      if (editingNodeId) {
+        await updateNode(accessToken, editingNodeId, {
+          description: description.trim() || null,
+          prompt_template: promptTemplate,
+          allow_department_ids: allowDepartmentIds,
+          allow_role_slugs: allowRoleSlugs,
+        });
+        setSaveMessage(`Updated node "${name.trim()}"`);
+        cancelEditNode();
+      } else {
+        const created = await createNode(accessToken, {
+          name: name.trim(),
+          description: description.trim() || null,
+          prompt_template: promptTemplate,
+          ...(allowDepartmentIds.length > 0 ? { allow_department_ids: allowDepartmentIds } : {}),
+          ...(allowRoleSlugs.length > 0 ? { allow_role_slugs: allowRoleSlugs } : {}),
+        });
+        setSaveMessage(`Created node "${created.name}" (${created.node_id})`);
+        setName("");
+        setDescription("");
+        setPromptTemplate("Summarize:\n\n{{context}}");
+        setAllowDepartmentIds([]);
+        setAllowRoleSlugs([]);
+      }
       await refresh();
     } catch (e: unknown) {
       setSaveMessage(e instanceof Error ? e.message : "Save failed");
     } finally {
       setSaving(false);
     }
-  }, [accessToken, allowDepartmentIds, allowRoleSlugs, description, name, promptTemplate, refresh, saving]);
+  }, [
+    accessToken,
+    allowDepartmentIds,
+    allowRoleSlugs,
+    description,
+    editingNodeId,
+    departments,
+    name,
+    promptTemplate,
+    refresh,
+    saving,
+  ]);
 
   return (
     <main className="flex min-h-full flex-1 flex-col items-center px-4 py-10">
@@ -115,7 +188,7 @@ export function NodeBuilderPage() {
         {!authLoading && accessToken ? (
           <Card>
             <CardHeader>
-              <CardTitle>New node</CardTitle>
+              <CardTitle>{editingNodeId ? "Edit node" : "New node"}</CardTitle>
               <CardDescription>
                 Reserved system name: retrieve_documents
                 {refError ? ` · ${refError}` : ""}
@@ -194,13 +267,20 @@ export function NodeBuilderPage() {
                 </p>
               ) : null}
             </CardContent>
-            <CardFooter className="flex justify-end gap-2">
-              <Button type="button" disabled={saving || !name.trim()} onClick={() => void submit()}>
+            <CardFooter className="flex flex-wrap justify-end gap-2">
+              {editingNodeId ? (
+                <Button type="button" variant="outline" disabled={saving} onClick={cancelEditNode}>
+                  Cancel edit
+                </Button>
+              ) : null}
+              <Button type="button" disabled={saving || (!editingNodeId && !name.trim())} onClick={() => void submit()}>
                 {saving ? (
                   <>
                     <Loader2Icon className="size-4 animate-spin" data-icon="inline-start" />
                     Saving
                   </>
+                ) : editingNodeId ? (
+                  "Save changes"
                 ) : (
                   "Create node"
                 )}
@@ -221,8 +301,36 @@ export function NodeBuilderPage() {
               ) : null}
               {nodes.map((n) => (
                 <div key={n.node_id} className="rounded-md border border-border px-3 py-2">
-                  <div className="font-medium text-foreground">{n.name}</div>
-                  {n.description ? <div className="text-muted-foreground">{n.description}</div> : null}
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div className="font-medium text-foreground">{n.name}</div>
+                      {n.description ? <div className="text-muted-foreground">{n.description}</div> : null}
+                    </div>
+                    <span className="flex shrink-0 gap-1">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-8"
+                        disabled={saving}
+                        onClick={() => beginEditNode(n)}
+                        aria-label="Edit node"
+                      >
+                        <PencilIcon className="size-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-8 text-destructive"
+                        disabled={saving}
+                        onClick={() => void removeNode(n.node_id)}
+                        aria-label="Delete node"
+                      >
+                        <Trash2Icon className="size-4" />
+                      </Button>
+                    </span>
+                  </div>
                 </div>
               ))}
             </CardContent>
