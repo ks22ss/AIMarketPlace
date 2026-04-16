@@ -70,7 +70,14 @@ export function ApiHealthDot({ className }: { className?: string }) {
   }, [state]);
 
   return (
-    <div className={cn("inline-flex items-center justify-center", className)} title={title} aria-label={title}>
+    <div
+      className={cn("inline-flex items-center justify-center", className)}
+      title={title}
+      role="status"
+      aria-live="polite"
+      aria-label={title}
+    >
+      <span className="sr-only">{title}</span>
       <span
         className={cn(
           "size-2.5 rounded-full ring-2 ring-background",
