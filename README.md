@@ -60,6 +60,13 @@ Chat-time retrieval uses the same pipeline with **limit 12** when the synthetic 
 - **Nodes** are DB-backed prompt templates with `{{query}}`, `{{context}}`, `{{output}}` substitution.
 - **Runtime:** `runSkill` builds a **LangGraph** graph per request (linear `START → … → END`); see `docs/chat.md` and `docs/spec.md` §8.
 - **POST `/api/chat`** requires an **installed** skill (`POST /api/skills/install`), matching allow lists, and a configured chat API key / model (`chat-llm.ts`). The web UI uses **SSE** (`Accept: text/event-stream`) so the final LLM step streams token deltas; JSON `{ reply, traceId, conversationId, conversationTitle }` is still available without that header. Every turn is persisted to `chat_conversations` (per-user JSONB history); manage it via `GET/PATCH/DELETE /api/chat/conversations(/:id)`.
+
+**Chat history — what to expect**
+
+- **While a reply is streaming:** the transcript updates live, but the **saved thread** (id, title, sidebar entry, URL) only lines up with the server **after** that reply finishes and is stored. That keeps persistence and the “which conversation is this?” signal in one step.
+- **What gets saved:** the history list is a record of **finished** turns. If something goes wrong before the run completes, that attempt **won’t** show up as a stored exchange—there is nothing partial to reopen later.
+- **Brand-new chats:** each **completed** first reply creates its thread. Sending several first messages in a tight burst before any of them finishes can produce **more than one** new thread, each with its own title once the assistant answers.
+
 - **Tools**: `GET /api/tools` returns an empty list; `POST /api/tools/register` does not persist — stubs only.
 - **PUT `/api/config/llm`**: validates input and returns a payload; **does not save** user LLM preferences to the database.
 
