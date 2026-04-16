@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { ChatOpenAI } from "@langchain/openai";
 import type { PrismaClient } from "@prisma/client";
+import type { Request, Response } from "express";
 import { Router } from "express";
 import { z } from "zod";
 
@@ -26,6 +27,121 @@ const skillNodesSchema = z.array(z.string().min(1).max(200)).max(10);
 function parseSkillNodes(value: unknown): string[] {
   const parsed = skillNodesSchema.safeParse(value);
   return parsed.success ? parsed.data : [];
+}
+
+type PreparedChatUser = {
+  userId: string;
+  orgId: string | null;
+  departmentId: string;
+  role: string;
+  department: { name: string };
+};
+
+type PrepareChatResult =
+  | { ok: true; user: PreparedChatUser; org: string; nodeNames: string[] }
+  | { ok: false; status: number; body: Record<string, unknown> };
+
+async function prepareChatExecution(
+  deps: ChatRouterDeps,
+  authUser: { userId: string; departmentId: string },
+  body: z.infer<typeof chatPostBodySchema>,
+): Promise<PrepareChatResult> {
+  const user = await deps.prisma.user.findUnique({
+    where: { userId: authUser.userId },
+    select: {
+      userId: true,
+      orgId: true,
+      departmentId: true,
+      role: true,
+      department: { select: { name: true } },
+    },
+  });
+  if (!user) {
+    return { ok: false, status: 401, body: { error: "User not found" } };
+  }
+
+  if (user.departmentId !== authUser.departmentId) {
+    return { ok: false, status: 401, body: { error: "Unauthorized" } };
+  }
+
+  const org = effectiveOrgId(user);
+
+  let nodeNames: string[] = [];
+
+  if (body.skill_id) {
+    const skill = await deps.prisma.skill.findFirst({
+      where: {
+        skillId: body.skill_id,
+        orgId: org,
+      },
+    });
+
+    if (!skill) {
+      return {
+        ok: false,
+        status: 404,
+        body: {
+          error: "Skill not found",
+          detail: "Check skill_id or pick another skill.",
+        },
+      };
+    }
+
+    if (
+      !userMatchesAllowLists(
+        { role: normalizeUserRoleSlug(user.role), department: user.department.name },
+        skill.allowRole,
+        skill.allowDepartment,
+      )
+    ) {
+      return { ok: false, status: 403, body: { error: "Forbidden", detail: "You cannot run this skill." } };
+    }
+
+    const installRow = await deps.prisma.userSkill.findUnique({
+      where: {
+        userId_skillId: { userId: user.userId, skillId: skill.skillId },
+      },
+    });
+    if (!installRow) {
+      return {
+        ok: false,
+        status: 403,
+        body: {
+          error: "Forbidden",
+          detail: "Install this skill from the Marketplace before using it in chat.",
+        },
+      };
+    }
+
+    nodeNames = parseSkillNodes(skill.skillNodes);
+  }
+
+  return { ok: true, user, org, nodeNames };
+}
+
+function wantsChatSse(request: Request): boolean {
+  const accept = request.headers.accept ?? "";
+  return accept.includes("text/event-stream");
+}
+
+function writeSseEvent(response: Response, event: string, data: unknown): void {
+  response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+function beginSse(response: Response): void {
+  response.status(200);
+  response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  response.setHeader("Cache-Control", "no-cache, no-transform");
+  response.setHeader("Connection", "keep-alive");
+  response.setHeader("X-Accel-Buffering", "no");
+  const res = response as Response & { flushHeaders?: () => void };
+  if (typeof res.flushHeaders === "function") {
+    res.flushHeaders();
+  }
+}
+
+function resolveReplyFromFinalState(output: unknown): string {
+  return typeof output === "string" && output.trim().length > 0 ? output.trim() : "(No output)";
 }
 
 export function createChatRouter(deps: ChatRouterDeps): Router {
@@ -57,96 +173,56 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         return;
       }
 
-      const user = await deps.prisma.user.findUnique({
-        where: { userId: authUser.userId },
-        select: {
-          userId: true,
-          orgId: true,
-          departmentId: true,
-          role: true,
-          department: { select: { name: true } },
-        },
-      });
-      if (!user) {
-        response.status(401).json({ error: "User not found" });
+      const prepared = await prepareChatExecution(deps, authUser, parsed.data);
+      if (!prepared.ok) {
+        response.status(prepared.status).json(prepared.body);
         return;
       }
 
-      if (user.departmentId !== authUser.departmentId) {
-        response.status(401).json({ error: "Unauthorized" });
-        return;
-      }
-
-      const org = effectiveOrgId(user);
-
-      let nodeNames: string[] = [];
-
-      if (parsed.data.skill_id) {
-        const skill = await deps.prisma.skill.findFirst({
-          where: {
-            skillId: parsed.data.skill_id,
-            orgId: org,
-          },
-        });
-
-        if (!skill) {
-          response.status(404).json({
-            error: "Skill not found",
-            detail: "Check skill_id or pick another skill.",
-          });
-          return;
-        }
-
-        if (
-          !userMatchesAllowLists(
-            { role: normalizeUserRoleSlug(user.role), department: user.department.name },
-            skill.allowRole,
-            skill.allowDepartment,
-          )
-        ) {
-          response.status(403).json({ error: "Forbidden", detail: "You cannot run this skill." });
-          return;
-        }
-
-        const installRow = await deps.prisma.userSkill.findUnique({
-          where: {
-            userId_skillId: { userId: user.userId, skillId: skill.skillId },
-          },
-        });
-        if (!installRow) {
-          response.status(403).json({
-            error: "Forbidden",
-            detail: "Install this skill from the Marketplace before using it in chat.",
-          });
-          return;
-        }
-
-        nodeNames = parseSkillNodes(skill.skillNodes);
-      }
-
+      const { user, org, nodeNames } = prepared;
+      const chatModel = deps.chatModel;
       const traceId = randomUUID();
 
-      const finalState = await runSkill(
-        {
-          prisma: deps.prisma,
-          pipeline: deps.pipeline,
-          chatModel: deps.chatModel,
-          orgId: org,
-        },
-        nodeNames,
-        {
-          query: parsed.data.message,
-          userId: user.userId,
-          departmentId: user.departmentId,
-          orgScope: org,
-        },
-      );
+      const runSkillBase = {
+        prisma: deps.prisma,
+        pipeline: deps.pipeline,
+        chatModel,
+        orgId: org,
+      };
 
-      // Never return `context` (raw RAG chunks) to the client — only the final LLM reply.
-      const reply =
-        typeof finalState.output === "string" && finalState.output.trim().length > 0
-          ? finalState.output.trim()
-          : "(No output)";
+      const initial = {
+        query: parsed.data.message,
+        userId: user.userId,
+        departmentId: user.departmentId,
+        orgScope: org,
+      };
+
+      if (wantsChatSse(request)) {
+        beginSse(response);
+        writeSseEvent(response, "meta", { trace_id: traceId });
+        try {
+          const finalState = await runSkill(
+            {
+              ...runSkillBase,
+              onFinalLlmToken: (delta) => writeSseEvent(response, "token", { delta }),
+            },
+            nodeNames,
+            initial,
+          );
+          const reply = resolveReplyFromFinalState(finalState.output);
+          writeSseEvent(response, "done", { reply });
+          response.end();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Chat failed";
+          writeSseEvent(response, "error", { message });
+          response.end();
+        }
+        return;
+      }
+
+      const finalState = await runSkill(runSkillBase, nodeNames, initial);
+
+      const reply = resolveReplyFromFinalState(finalState.output);
 
       const payload: ChatPostResponse = {
         reply,

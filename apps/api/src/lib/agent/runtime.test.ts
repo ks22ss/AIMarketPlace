@@ -248,6 +248,73 @@ describe("runSkill (LangGraph)", () => {
     expect(result.intermediate).toHaveProperty("step_two", "reply-2");
     expect(result.output).toBe("reply-2");
   });
+
+  it("streams only the final prompt step when onFinalLlmToken is set", async () => {
+    const deltas: string[] = [];
+    const chatModel = {
+      invoke: vi.fn().mockResolvedValue({ content: "first-out" }),
+      stream: vi.fn().mockImplementation(async function* () {
+        yield { content: "fi" };
+        yield { content: "nal" };
+      }),
+    } as unknown as RunSkillDeps["chatModel"];
+
+    const prisma = makeMockPrisma({
+      step_one: "{{query}}",
+      step_two: "{{output}}",
+    });
+    const deps: RunSkillDeps = {
+      prisma,
+      pipeline: null,
+      chatModel,
+      orgId: "org1",
+      onFinalLlmToken: (d) => deltas.push(d),
+    };
+
+    const result = await runSkill(deps, ["step_one", "step_two"], {
+      query: "test",
+      userId: "u1",
+      departmentId: "d1",
+      orgScope: "org1",
+    });
+
+    expect(chatModel.invoke).toHaveBeenCalledTimes(1);
+    expect(chatModel.stream).toHaveBeenCalledTimes(1);
+    expect(deltas.join("")).toBe("final");
+    expect(result.intermediate).toHaveProperty("step_one", "first-out");
+    expect(result.output).toBe("final");
+  });
+
+  it("streams a single default completion via onFinalLlmToken", async () => {
+    const deltas: string[] = [];
+    const chatModel = {
+      invoke: vi.fn(),
+      stream: vi.fn().mockImplementation(async function* () {
+        yield { content: "Hel" };
+        yield { content: "lo" };
+      }),
+    } as unknown as RunSkillDeps["chatModel"];
+
+    const deps: RunSkillDeps = {
+      prisma: makeMockPrisma(),
+      pipeline: null,
+      chatModel,
+      orgId: "org1",
+      onFinalLlmToken: (d) => deltas.push(d),
+    };
+
+    const result = await runSkill(deps, [], {
+      query: "hi",
+      userId: "u1",
+      departmentId: "d1",
+      orgScope: "org1",
+    });
+
+    expect(chatModel.invoke).not.toHaveBeenCalled();
+    expect(chatModel.stream).toHaveBeenCalledTimes(1);
+    expect(deltas.join("")).toBe("Hello");
+    expect(result.output).toBe("Hello");
+  });
 });
 
 describe("runSkill graph cache", () => {
@@ -309,6 +376,30 @@ describe("runSkill graph cache", () => {
 
     await runSkill({ prisma, pipeline: null, chatModel, orgId: "org1" }, ["n"], initial);
     await runSkill({ prisma, pipeline: makeMockPipeline([]), chatModel, orgId: "org1" }, ["n"], initial);
+    expect(getSkillGraphCacheSizeForTests()).toBe(2);
+  });
+
+  it("uses separate cache entries for buffered vs streaming final step", async () => {
+    const chatModel = {
+      invoke: vi.fn().mockResolvedValue({ content: "x" }),
+      stream: vi.fn().mockImplementation(async function* () {
+        yield { content: "x" };
+      }),
+    } as unknown as RunSkillDeps["chatModel"];
+    const prisma = makeMockPrisma({ n: "{{query}}" });
+    const initial = {
+      query: "q",
+      userId: "u1",
+      departmentId: "b0000001-0000-4000-8000-000000000001",
+      orgScope: "org1",
+    };
+
+    await runSkill({ prisma, pipeline: null, chatModel, orgId: "org1" }, ["n"], initial);
+    await runSkill(
+      { prisma, pipeline: null, chatModel, orgId: "org1", onFinalLlmToken: () => {} },
+      ["n"],
+      initial,
+    );
     expect(getSkillGraphCacheSizeForTests()).toBe(2);
   });
 
