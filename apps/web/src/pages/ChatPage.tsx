@@ -219,7 +219,7 @@ export function ChatPage() {
                           {selectedSkill?.access_summary ?? ""}
                         </span>
                         <Link
-                          to="/chat"
+                          to="/"
                           replace
                           className="text-xs font-medium text-primary underline-offset-4 hover:underline"
                         >

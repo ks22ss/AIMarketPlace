@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Boxes, FileText, LogOut, MessageSquare, ShoppingBag, Wand2 } from "lucide-react";
 
 import { useAuth } from "@/auth/AuthContext";
+import { ApiHealthDot } from "@/components/ApiHealthDot";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +40,7 @@ export function AppLayout() {
         </NavLink>
 
         <nav className="mt-8 flex flex-col gap-0.5" aria-label="Primary">
-          <NavLink to="/chat" className={navLinkClass} end>
+          <NavLink to="/" className={navLinkClass} end>
             <MessageSquare className="size-4 shrink-0 opacity-80" aria-hidden />
             Chat
           </NavLink>
@@ -75,7 +76,10 @@ export function AppLayout() {
       </aside>
 
       <div className="flex min-h-svh min-w-0 flex-1 flex-col">
-        <Outlet />
+        <div className="relative flex min-h-svh min-w-0 flex-1 flex-col">
+          <ApiHealthDot className="absolute right-4 top-4 z-10" />
+          <Outlet />
+        </div>
       </div>
     </div>
   );
