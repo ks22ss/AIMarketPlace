@@ -59,6 +59,19 @@ function json(route: Route, status: number, body: unknown) {
   });
 }
 
+function wantsSse(request: Request): boolean {
+  const accept = request.headers()["accept"] ?? "";
+  return accept.includes("text/event-stream");
+}
+
+function chatSseBody(reply: string, traceId: string): string {
+  return (
+    `event: meta\ndata: ${JSON.stringify({ trace_id: traceId })}\n\n` +
+    `event: token\ndata: ${JSON.stringify({ delta: reply })}\n\n` +
+    `event: done\ndata: ${JSON.stringify({ reply })}\n\n`
+  );
+}
+
 function unauthorized(route: Route) {
   return json(route, 401, { error: "Unauthorized" });
 }
@@ -354,7 +367,20 @@ async function handleApiRoute(route: Route, request: Request, state: MockState):
       await json(route, 403, { error: "Forbidden", detail: "Install this skill from the Marketplace." });
       return;
     }
-    await json(route, 200, { reply: `Echo: ${body.message}`, traceId: "trace_mock_1" });
+    const reply = `Echo: ${body.message}`;
+    const traceId = "trace_mock_1";
+    if (wantsSse(request)) {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache",
+        },
+        body: chatSseBody(reply, traceId),
+      });
+      return;
+    }
+    await json(route, 200, { reply, traceId });
     return;
   }
 

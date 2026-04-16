@@ -13,7 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { postChat } from "@/lib/chatClient";
+import { postChatStream } from "@/lib/chatClient";
 import { listSkills, type SkillSummaryDto } from "@/lib/skillsClient";
 import { cn } from "@/lib/utils";
 
@@ -28,6 +28,8 @@ type ChatLine = {
 
 const textareaClass =
   "min-h-[72px] w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30";
+
+const chatStreamTimeoutMs = 180_000;
 
 function newId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -129,35 +131,56 @@ export function ChatPage() {
     setDraft("");
 
     const userLine: ChatLine = { id: newId(), role: "user", content: trimmed };
-    setLines((previous) => [...previous, userLine]);
+    const assistantId = newId();
+    setLines((previous) => [
+      ...previous,
+      userLine,
+      { id: assistantId, role: "assistant", content: "", traceId: undefined },
+    ]);
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), chatStreamTimeoutMs);
     try {
-      const result = await postChat(
+      const result = await postChatStream(
         accessToken,
         trimmed,
         selectedSkillId ? { skill_id: selectedSkillId } : undefined,
+        {
+          onMeta: ({ trace_id }) => {
+            setLines((previous) =>
+              previous.map((line) => (line.id === assistantId ? { ...line, traceId: trace_id } : line)),
+            );
+          },
+          onToken: (delta) => {
+            setLines((previous) =>
+              previous.map((line) => (line.id === assistantId ? { ...line, content: line.content + delta } : line)),
+            );
+          },
+        },
+        controller.signal,
       );
-      setLines((previous) => [
-        ...previous,
-        {
-          id: newId(),
-          role: "assistant",
-          content: result.reply,
-          traceId: result.traceId,
-        },
-      ]);
+      setLines((previous) =>
+        previous.map((line) =>
+          line.id === assistantId
+            ? { ...line, content: result.reply, traceId: result.traceId || line.traceId }
+            : line,
+        ),
+      );
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Request failed";
+      const message =
+        err instanceof Error && err.name === "AbortError"
+          ? `Chat request timed out after ${Math.round(chatStreamTimeoutMs / 1000)}s`
+          : err instanceof Error
+            ? err.message
+            : "Request failed";
       setError(message);
-      setLines((previous) => [
-        ...previous,
-        {
-          id: newId(),
-          role: "assistant",
-          content: `Error: ${message}`,
-        },
-      ]);
+      setLines((previous) =>
+        previous.map((line) =>
+          line.id === assistantId ? { ...line, content: `Error: ${message}` } : line,
+        ),
+      );
     } finally {
+      clearTimeout(timer);
       setSending(false);
     }
   }, [accessToken, draft, selectedSkillId, sending]);
@@ -288,15 +311,18 @@ export function ChatPage() {
                   <div className="mt-0.5 shrink-0 text-muted-foreground">
                     {line.role === "user" ? <UserIcon className="size-4" /> : <BotIcon className="size-4" />}
                   </div>
-                  <div className="min-w-0 flex-1 whitespace-pre-wrap wrap-break-word text-foreground">{line.content}</div>
+                  <div className="min-w-0 flex-1 whitespace-pre-wrap wrap-break-word text-foreground">
+                    {line.role === "assistant" && line.content === "" && sending ? (
+                      <span className="inline-flex items-center gap-2 text-muted-foreground">
+                        <Loader2Icon className="size-4 animate-spin" aria-hidden />
+                        Generating…
+                      </span>
+                    ) : (
+                      line.content
+                    )}
+                  </div>
                 </div>
               ))}
-              {sending ? (
-                <div className="mr-8 flex items-center gap-2 rounded-lg border border-muted bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-                  <Loader2Icon className="size-4 animate-spin" />
-                  Thinking…
-                </div>
-              ) : null}
               <div ref={listEndRef} />
             </CardContent>
             <CardFooter className="flex flex-col gap-3 border-t bg-muted/20 px-4 py-4">

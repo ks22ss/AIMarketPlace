@@ -37,6 +37,12 @@ export type RunSkillDeps = {
    * at invoke time so compiled graphs can be cached safely; callers should pass the same value as `initial.orgScope`.
    */
   orgId: string;
+  /**
+   * When set, the **last** prompt step in the workflow streams token deltas via this callback
+   * (`ChatOpenAI.stream`); earlier prompt steps still use `invoke`. When omitted, invoke-only graphs
+   * are cached separately from streaming runs.
+   */
+  onFinalLlmToken?: (delta: string) => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -143,7 +149,7 @@ function retrieveDocumentsNode(deps: RunSkillDeps) {
   };
 }
 
-function promptNodeFactory(deps: RunSkillDeps, nodeName: string) {
+function promptNodeFactory(deps: RunSkillDeps, nodeName: string, isFinalPromptStep: boolean) {
   return async (state: AgentState): Promise<Partial<AgentState>> => {
     let promptTemplate: string;
 
@@ -171,7 +177,10 @@ function promptNodeFactory(deps: RunSkillDeps, nodeName: string) {
       userMessage = `${userMessage}\n\n(No matching indexed document excerpts were found for this question.)`;
     }
 
-    const response = await callLlm(deps.chatModel, userMessage);
+    const useStream = Boolean(isFinalPromptStep && deps.onFinalLlmToken);
+    const response = useStream
+      ? await streamFinalLlm(deps.chatModel, userMessage, deps.onFinalLlmToken!)
+      : await callLlm(deps.chatModel, userMessage);
     return {
       output: response,
       intermediate: { ...prev, [nodeName]: response },
@@ -213,6 +222,40 @@ async function callLlm(chatModel: ChatOpenAI, prompt: string): Promise<string> {
   return aiMessageContentToString(message.content).trim();
 }
 
+/**
+ * Stream the final completion; supports both incremental chunks and cumulative `content` strings
+ * from the provider/LangChain.
+ */
+async function streamFinalLlm(
+  chatModel: ChatOpenAI,
+  prompt: string,
+  onToken: (delta: string) => void,
+): Promise<string> {
+  const run = async () => {
+    let accumulated = "";
+    const stream = await chatModel.stream([new HumanMessage(prompt)]);
+    for await (const chunk of stream) {
+      const text = aiMessageContentToString(chunk.content);
+      if (!text) {
+        continue;
+      }
+      let delta: string;
+      if (accumulated.length > 0 && text.startsWith(accumulated)) {
+        delta = text.slice(accumulated.length);
+        accumulated = text;
+      } else {
+        delta = text;
+        accumulated += text;
+      }
+      if (delta.length > 0) {
+        onToken(delta);
+      }
+    }
+    return accumulated.trim();
+  };
+  return withTimeout(run(), 120_000, "LLM completion");
+}
+
 // ---------------------------------------------------------------------------
 // Graph compilation + execution
 // ---------------------------------------------------------------------------
@@ -227,10 +270,15 @@ const skillGraphCache = new Map<string, ReturnType<typeof compileSkillGraph>>();
  * Graph nodes read tenancy from `state.orgScope` / `state.departmentId` at invoke time so one compiled
  * graph can be shared across users/orgs with the same workflow shape.
  */
-function skillGraphCacheKey(pipeline: DocumentPipeline | null, skillNodeNames: string[]): string {
+function skillGraphCacheKey(
+  pipeline: DocumentPipeline | null,
+  skillNodeNames: string[],
+  streamFinal: boolean,
+): string {
   const order = buildSkillExecutionOrder(pipeline, skillNodeNames);
   const pipelineBit = pipeline ? "1" : "0";
-  return `${pipelineBit}\x1f${order.join("\x1f")}`;
+  const streamBit = streamFinal ? "1" : "0";
+  return `${pipelineBit}\x1f${streamBit}\x1f${order.join("\x1f")}`;
 }
 
 function evictSkillGraphCacheIfNeeded(): void {
@@ -256,12 +304,14 @@ export function getSkillGraphCacheSizeForTests(): number {
 function compileSkillGraph(deps: RunSkillDeps, skillNodeNames: string[]) {
   const order = buildSkillExecutionOrder(deps.pipeline, skillNodeNames);
   const graph = new StateGraph(SkillGraphState);
+  const lastStepName = order[order.length - 1]!;
 
   for (const stepName of order) {
     if (stepName === SYSTEM_RETRIEVE) {
       graph.addNode(stepName, retrieveDocumentsNode(deps));
     } else {
-      graph.addNode(stepName, promptNodeFactory(deps, stepName));
+      const isFinalPromptStep = stepName === lastStepName;
+      graph.addNode(stepName, promptNodeFactory(deps, stepName, isFinalPromptStep));
     }
   }
 
@@ -282,7 +332,7 @@ export async function runSkill(
   skillNodeNames: string[],
   initial: Pick<AgentState, "query" | "userId" | "departmentId" | "orgScope">,
 ): Promise<AgentState> {
-  const key = skillGraphCacheKey(deps.pipeline, skillNodeNames);
+  const key = skillGraphCacheKey(deps.pipeline, skillNodeNames, Boolean(deps.onFinalLlmToken));
   let compiled = skillGraphCache.get(key);
   if (!compiled) {
     compiled = compileSkillGraph(deps, skillNodeNames);

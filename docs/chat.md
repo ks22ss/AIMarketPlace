@@ -9,45 +9,39 @@ format.
 
 ---
 
-## 1) Web client sends `POST /api/chat`
+## 1) Web client sends `POST /api/chat` (SSE)
 
 **Description**
 
-The frontend calls `postChat(accessToken, message, { skill_id? })`, which sends an authenticated `POST /api/chat`
-request with JSON `{ message, skill_id? }` and a client-side abort timeout.
+The Chat page calls `postChatStream(accessToken, message, options, handlers, signal)`, which sends the same JSON body
+as before but sets `Accept: text/event-stream` and reads the response body as **Server-Sent Events**. Token deltas are
+applied incrementally in the UI; `meta` carries `trace_id`, `done` carries the final `reply`. `postChat` (JSON
+response) remains in `chatClient.ts` for scripts or other consumers that prefer a single JSON payload.
 
 **Code snippet** (`apps/web/src/lib/chatClient.ts`)
 
 ```ts
-export async function postChat(
+export async function postChatStream(
   accessToken: string,
   message: string,
-  options?: { skill_id?: string },
-) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 180_000);
-  try {
-    const response = await fetch(resolveApiUrl("/api/chat"), {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        message,
-        ...(options?.skill_id ? { skill_id: options.skill_id } : {}),
-      }),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      throw new Error(await readErrorMessage(response));
-    }
-
-    return response.json();
-  } finally {
-    clearTimeout(timer);
-  }
+  options: { skill_id?: string } | undefined,
+  handlers: ChatStreamHandlers | undefined,
+  signal: AbortSignal,
+): Promise<ChatPostResponse> {
+  const response = await fetch(resolveApiUrl("/api/chat"), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify({
+      message,
+      ...(options?.skill_id ? { skill_id: options.skill_id } : {}),
+    }),
+    signal,
+  });
+  // … parse SSE blocks: event `meta` | `token` | `done` | `error`
 }
 ```
 
@@ -58,7 +52,8 @@ export async function postChat(
 **Description**
 
 The API route validates the request body (Zod schema) and returns `503` if the server-side chat model isn’t configured
-(missing API keys / model config).
+(missing API keys / model config). If `Accept` includes `text/event-stream`, successful responses use SSE (see
+`public-api.ts` for event payloads); otherwise the handler returns JSON `{ reply, traceId }`.
 
 **Code snippet** (`apps/api/src/features/chat/chat.routes.ts`)
 
@@ -190,11 +185,13 @@ function compileSkillGraph(deps: RunSkillDeps, skillNodeNames: string[]) {
   const order = buildSkillExecutionOrder(deps.pipeline, skillNodeNames);
   const graph = new StateGraph(SkillGraphState);
 
+  const lastStepName = order[order.length - 1];
   for (const stepName of order) {
     if (stepName === SYSTEM_RETRIEVE) {
       graph.addNode(stepName, retrieveDocumentsNode(deps));
     } else {
-      graph.addNode(stepName, promptNodeFactory(deps, stepName));
+      const isFinalPromptStep = stepName === lastStepName;
+      graph.addNode(stepName, promptNodeFactory(deps, stepName, isFinalPromptStep));
     }
   }
 
@@ -287,14 +284,14 @@ async function queryNearest(params: { vector: number[]; departmentId: string; li
 
 **Description**
 
-Each prompt graph node is created by `promptNodeFactory(deps, nodeName)`. The factory returns a closure that:
+Each prompt graph node is created by `promptNodeFactory(deps, nodeName, isFinalPromptStep)`. The factory returns a closure that:
 - loads the prompt template from DB (or uses the built-in default for `__default_agent_reply__`),
 - injects `{{query}}`, `{{context}}`, `{{output}}` variables,
-- calls LangChain `ChatOpenAI.invoke(...)` with a 120s timeout,
+- calls LangChain `ChatOpenAI.invoke(...)` with a 120s timeout for non-final steps (and for all steps when `onFinalLlmToken` is unset),
+- on the **last** prompt step when `RunSkillDeps.onFinalLlmToken` is set (SSE chat), uses `ChatOpenAI.stream(...)` instead and forwards text deltas to the callback,
 - returns `{ output, intermediate }` to update the graph state.
 
-The HTTP response returns **only** the final LLM reply (`output`) plus a generated `traceId`. It does **not** return raw
-retrieved chunks (`context`) to the client.
+The HTTP response returns **only** the final LLM reply (`output`) plus a generated `traceId` (JSON mode), or streams token events then `done` (SSE). It does **not** return raw retrieved chunks (`context`) to the client.
 
 **Code snippet** (`apps/api/src/lib/agent/runtime.ts`)
 

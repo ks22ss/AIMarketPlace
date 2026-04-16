@@ -26,7 +26,20 @@ export type ChatPostResponse = {
   traceId: string;
 };
 
-/** POST /api/nodes ??request body schema for create. */
+/**
+ * When `POST /api/chat` is sent with `Accept: text/event-stream`, the response is SSE (not JSON).
+ * Event names and JSON payloads:
+ * - `meta`: `{ "trace_id": string }`
+ * - `token`: `{ "delta": string }` (zero or more; concatenate for the assistant text)
+ * - `done`: `{ "reply": string }` (full trimmed reply)
+ * - `error`: `{ "message": string, "code"?: string }` (terminal)
+ */
+export type ChatSseMetaPayload = { trace_id: string };
+export type ChatSseTokenPayload = { delta: string };
+export type ChatSseDonePayload = { reply: string };
+export type ChatSseErrorPayload = { message: string; code?: string };
+
+/** POST /api/nodes - request body schema for create. */
 export const nodeCreateBodySchema = z.object({
   name: z.string().min(1).max(120),
   description: z.string().max(8000).optional().nullable(),
@@ -123,7 +136,7 @@ export type SkillUninstallResponse = {
 export const skillCreateBodySchema = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(8000).optional().nullable(),
-  /** Ordered node names (1??0), e.g. ["retrieve_documents","summarize"]. */
+  /** Ordered node names (1-10), e.g. ["retrieve_documents","summarize"]. */
   nodes: z.array(z.string().min(1).max(200)).min(1).max(10),
   content: z.record(z.string(), z.unknown()).optional(),
   /** Empty / omitted = all departments in org. */
@@ -260,7 +273,7 @@ export type ToolRegisterResponse = {
   type: string;
 };
 
-/** GET /api/docs ??documents in the signed-in user's department (Postgres + S3 key + ingest metadata). */
+/** GET /api/docs - documents in the signed-in user's department (Postgres + S3 key + ingest metadata). */
 export type DocumentSummaryDto = {
   document_id: string;
   created_at: string;
@@ -315,7 +328,7 @@ export type DocsIngestResponse = {
   chunkCount: number;
 };
 
-/** POST /api/docs/query ??embed query and return nearest chunks (RAG context). */
+/** POST /api/docs/query - embed query and return nearest chunks (RAG context). */
 export const docsQueryBodySchema = z.object({
   query: z.string().min(1).max(4000),
   limit: z.number().int().min(1).max(20).optional(),
