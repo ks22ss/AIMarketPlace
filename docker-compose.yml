@@ -17,20 +17,6 @@ services:
       timeout: 5s
       retries: 10
 
-  redis:
-    image: redis:7-alpine
-    container_name: aimarketplace-redis
-    restart: unless-stopped
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
   weaviate:
     image: semitechnologies/weaviate:1.27.0
     container_name: aimarketplace-weaviate
@@ -67,6 +53,5 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
   weaviate_data:
   minio_data:

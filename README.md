@@ -15,7 +15,6 @@ Chat: linear skill runner + optional retrieve_documents (uses the same pipeline)
 ```
 
 - **LangGraph** is installed and a sample RAG graph exists under `apps/api/src/features/chat/rag-agent.graph.ts`, but **HTTP `/api/chat` does not use it** — chat goes through `lib/agent/runtime.ts` (`runSkill`).
-- **Redis** is defined in `docker-compose.yml` and `REDIS_URL` appears in `.env.example`, but **no TypeScript in this repo connects to Redis**.
 
 ## Tech stack
 
@@ -53,7 +52,7 @@ Chat-time retrieval uses the same pipeline with **limit 12** when the synthetic 
 
 ## AWS Terraform (`infra/`)
 
-S3 uploads bucket (encryption, public access block, optional versioning and CORS). This repo’s Terraform does **not** provision RDS, Redis/ElastiCache, ECS/EKS, or API Gateway.
+S3 uploads bucket (encryption, public access block, optional versioning and CORS). This repo’s Terraform does **not** provision RDS, ElastiCache, ECS/EKS, or API Gateway.
 
 ## Getting started
 

@@ -15,7 +15,6 @@ Services started for local development:
 | Service    | Purpose |
 |-----------|---------|
 | PostgreSQL 16 | Primary application database (`DATABASE_URL`). |
-| Redis 7 | Container only; **no application code reads `REDIS_URL` or connects to Redis**. |
 | Weaviate 1.27 | Vector store for document chunks (`WEAVIATE_URL`). |
 | MinIO | S3-compatible API for uploads (`S3_ENDPOINT`, path-style). |
 
