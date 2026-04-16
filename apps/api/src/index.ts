@@ -68,7 +68,7 @@ async function start(): Promise<void> {
 
   const chatModel = createChatModelFromEnv();
   if (chatModel) {
-    console.log("Skill runtime chat: ready (linear nodes + optional retrieve_documents).");
+    console.log("Skill runtime chat: ready (LangGraph skill runner + optional retrieve_documents).");
   } else {
     console.warn(
       "Chat disabled — set CHAT_API_KEY or OPENAI_API_KEY (and model / base URL) for composable skill execution.",

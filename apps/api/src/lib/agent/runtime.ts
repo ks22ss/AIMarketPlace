@@ -32,7 +32,10 @@ export type RunSkillDeps = {
   prisma: PrismaClient;
   pipeline: DocumentPipeline | null;
   chatModel: ChatOpenAI;
-  /** Same scope as nodes/skills in DB (`org_id` column). */
+  /**
+   * Org scope for tenancy (same as `org_id` on nodes/skills). Node lookups use **`state.orgScope`**
+   * at invoke time so compiled graphs can be cached safely; callers should pass the same value as `initial.orgScope`.
+   */
   orgId: string;
 };
 
@@ -148,7 +151,7 @@ function promptNodeFactory(deps: RunSkillDeps, nodeName: string) {
       promptTemplate = DEFAULT_AGENT_PROMPT_TEMPLATE;
     } else {
       const node = await deps.prisma.node.findFirst({
-        where: { orgId: deps.orgId, name: nodeName },
+        where: { orgId: state.orgScope, name: nodeName },
       });
       if (!node) {
         throw new Error(`Unknown node: ${nodeName}`);
@@ -214,6 +217,42 @@ async function callLlm(chatModel: ChatOpenAI, prompt: string): Promise<string> {
 // Graph compilation + execution
 // ---------------------------------------------------------------------------
 
+/** Max distinct compiled graphs to retain (FIFO eviction by insertion order). */
+const SKILL_GRAPH_CACHE_MAX = 128;
+
+const skillGraphCache = new Map<string, ReturnType<typeof compileSkillGraph>>();
+
+/**
+ * Cache key: pipeline on/off + resolved execution order (never sort user node names — order is semantics).
+ * Graph nodes read tenancy from `state.orgScope` / `state.departmentId` at invoke time so one compiled
+ * graph can be shared across users/orgs with the same workflow shape.
+ */
+function skillGraphCacheKey(pipeline: DocumentPipeline | null, skillNodeNames: string[]): string {
+  const order = buildSkillExecutionOrder(pipeline, skillNodeNames);
+  const pipelineBit = pipeline ? "1" : "0";
+  return `${pipelineBit}\x1f${order.join("\x1f")}`;
+}
+
+function evictSkillGraphCacheIfNeeded(): void {
+  while (skillGraphCache.size > SKILL_GRAPH_CACHE_MAX) {
+    const oldest = skillGraphCache.keys().next().value;
+    if (oldest === undefined) {
+      break;
+    }
+    skillGraphCache.delete(oldest);
+  }
+}
+
+/** Clears the compiled skill graph cache (intended for tests). */
+export function resetSkillGraphCacheForTests(): void {
+  skillGraphCache.clear();
+}
+
+/** Returns how many compiled graphs are cached (intended for tests). */
+export function getSkillGraphCacheSizeForTests(): number {
+  return skillGraphCache.size;
+}
+
 function compileSkillGraph(deps: RunSkillDeps, skillNodeNames: string[]) {
   const order = buildSkillExecutionOrder(deps.pipeline, skillNodeNames);
   const graph = new StateGraph(SkillGraphState);
@@ -243,7 +282,14 @@ export async function runSkill(
   skillNodeNames: string[],
   initial: Pick<AgentState, "query" | "userId" | "departmentId" | "orgScope">,
 ): Promise<AgentState> {
-  const compiled = compileSkillGraph(deps, skillNodeNames);
+  const key = skillGraphCacheKey(deps.pipeline, skillNodeNames);
+  let compiled = skillGraphCache.get(key);
+  if (!compiled) {
+    compiled = compileSkillGraph(deps, skillNodeNames);
+    skillGraphCache.set(key, compiled);
+    evictSkillGraphCacheIfNeeded();
+  }
+
   const result = await compiled.invoke({
     query: initial.query,
     userId: initial.userId,
