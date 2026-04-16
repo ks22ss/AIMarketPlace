@@ -126,34 +126,52 @@ These are **ideas** for org-scoped **nodes** (prompt templates, `snake_case` nam
 
 ### “Very cool / impressive” skills (pitch-style)
 
+Below, **Example prompt** is the literal text a user types into the **Chat** message field (`message` in `POST /api/chat`); node templates typically inject it as `{{query}}`, and indexed docs appear as `{{context}}` when retrieval runs.
+
 1. **`compliance_copilot`** (default hero skill)  
    **Nodes:** `compliance_intake_normalize` → `policy_retrieval_gap_check` → `executive_one_pager`  
-   **Why:** Feels like a staffed compliance desk: structured intake, grounded answers, exec-ready output.
+   **Why:** Feels like a staffed compliance desk: structured intake, grounded answers, exec-ready output.  
+   **Example prompt:**  
+   > We’re updating our SaaS for EU enterprise customers. Jurisdiction: EU + UK. Question: under our **current internal policies** (use indexed docs), what must we do before enabling cross-border analytics? Give gaps, owners, and a one-page exec summary with decisions due in 14 days.
 
 2. **`audit_readiness_assistant`**  
    **Nodes:** `compliance_intake_normalize` → `control_mapping_mapper` → `audit_evidence_pack_outline` → `risk_register_draft`  
-   **Why:** Turns “we might get audited” into an actionable evidence story, not generic chat.
+   **Why:** Turns “we might get audited” into an actionable evidence story, not generic chat.  
+   **Example prompt:**  
+   > SOC 2 Type II fieldwork starts in 6 weeks for our product org. Using our policies and runbooks in the library, map **Access Control** and **Change Management** to evidence we already have, list missing artifacts, and draft a risk register for the top 10 gaps.
 
 3. **`policy_change_impact_report`**  
    **Nodes:** `compliance_intake_normalize` → `regulatory_delta_scan` → `risk_register_draft` → `customer_comms_drafter`  
-   **Why:** Release-style workflow: what changed, what breaks, what to tell customers.
+   **Why:** Release-style workflow: what changed, what breaks, what to tell customers.  
+   **Example prompt:**  
+   > We’re shipping **v2.3** next month: new optional AI features and shorter log retention. Compare impact vs our published Security & Privacy pages (indexed). Flag customer-facing risks, internal policy conflicts, and draft **external** release notes + **internal** engineering checklist.
 
 4. **`vendor_contract_red_flag_review`**  
    **Nodes:** `compliance_intake_normalize` → `vendor_dpa_clause_review` → `risk_register_draft` → `executive_one_pager`  
-   **Why:** Procurement + legal: fast triage with a decision memo.
+   **Why:** Procurement + legal: fast triage with a decision memo.  
+   **Example prompt:**  
+   > Redline this vendor DPA (paste key clauses here, or rely on indexed contract docs). Baseline: EU SCCs, subprocessors with 30-day notice, no uncapped liability, breach notice ≤ 72h. Flag dealbreakers, acceptable compromises, and an exec go/no-go with top 5 risks.
 
 5. **`incident_response_playbook_helper`**  
    **Nodes:** `compliance_intake_normalize` → `incident_timeline_builder` → `customer_comms_drafter` → `audit_evidence_pack_outline`  
-   **Why:** High-stakes incident mode: timeline + comms + evidence index.
+   **Why:** High-stakes incident mode: timeline + comms + evidence index.  
+   **Example prompt:**  
+   > P1: suspected unauthorized access to a prod DB snapshot between **2026-04-10 14:00 UTC** and **2026-04-11 09:00 UTC**. Facts: credential rotated, no exfil confirmed yet. Build a regulator-ready timeline, draft customer email (honest, no speculation), and an evidence index aligned to our incident policy.
 
 6. **`reg_interpretation_memo`**  
    **Nodes:** `compliance_intake_normalize` → `policy_retrieval_gap_check` → `executive_one_pager`  
-   **Why:** Memo mode stays credible when grounded in internal policy excerpts (`{{context}}`).
+   **Why:** Memo mode stays credible when grounded in internal policy excerpts (`{{context}}`).  
+   **Example prompt:**  
+   > Does our **Data Classification Policy** require encryption at rest for “Confidential” analytics exports to S3? Cite internal policy language. If silent, say what’s missing and recommend a policy amendment in neutral legal tone.
 
 7. **`control_testing_script_generator`** (ITGC / operational controls)  
    **Nodes:** `control_mapping_mapper` → `audit_evidence_pack_outline` → `risk_register_draft`  
-   **Why:** Workpaper-shaped output: controls, tests, expected evidence, failure modes.
+   **Why:** Workpaper-shaped output: controls, tests, expected evidence, failure modes.  
+   **Example prompt:**  
+   > Control **IT-CHG-01**: production changes require peer review + automated tests. Using indexed change-management docs, produce a test script (steps, sampling, pass/fail), expected evidence (tickets, CI logs), and failure remediation for Q2 internal audit.
 
 8. **`customer_trust_faq_builder`**  
    **Nodes:** `policy_retrieval_gap_check` → `customer_comms_drafter` → `executive_one_pager`  
-   **Why:** Security/compliance + marketing: FAQs grounded in your own docs.
+   **Why:** Security/compliance + marketing: FAQs grounded in your own docs.  
+   **Example prompt:**  
+   > Draft a **public trust center FAQ** (10 Q&As) on data retention, subprocessors, encryption, and “do you train on customer data?” Ground every answer in our indexed policies; mark any question we cannot answer from docs as “needs legal review.”
