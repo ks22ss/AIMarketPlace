@@ -14,9 +14,13 @@ format.
 **Description**
 
 The Chat page calls `postChatStream(accessToken, message, options, handlers, signal)`, which sends the same JSON body
-as before but sets `Accept: text/event-stream` and reads the response body as **Server-Sent Events**. Token deltas are
-applied incrementally in the UI; `meta` carries `trace_id`, `done` carries the final `reply`. `postChat` (JSON
-response) remains in `chatClient.ts` for scripts or other consumers that prefer a single JSON payload.
+as before but sets `Accept: text/event-stream` and reads the response body as **Server-Sent Events**. The body can
+include `conversation_id` to append to an existing chat in `chat_conversations`; otherwise the server creates a new
+conversation and returns its id + derived title. Token deltas are applied incrementally in the UI; `meta` carries
+`trace_id`, `conversation` carries `{ conversation_id, title }` once persistence completes, `done` carries the final
+`reply` plus the same conversation fields. A client-side splitter separates `<think>...</think>` deltas so the UI
+renders a collapsible reasoning block. `postChat` (JSON response) remains in `chatClient.ts` for scripts or other
+consumers that prefer a single JSON payload.
 
 **Code snippet** (`apps/web/src/lib/chatClient.ts`)
 
@@ -52,8 +56,13 @@ export async function postChatStream(
 **Description**
 
 The API route validates the request body (Zod schema) and returns `503` if the server-side chat model isn’t configured
-(missing API keys / model config). If `Accept` includes `text/event-stream`, successful responses use SSE (see
-`public-api.ts` for event payloads); otherwise the handler returns JSON `{ reply, traceId }`.
+(missing API keys / model config). If `conversation_id` is provided it is verified against `chat_conversations`
+(404 when the conversation belongs to another user, to avoid leaking ids). If `Accept` includes `text/event-stream`,
+successful responses use SSE (see `public-api.ts` for event payloads); otherwise the handler returns JSON
+`{ reply, traceId, conversationId, conversationTitle }`. Either way, both the user and assistant messages are appended
+to the conversation once the run finishes. For existing threads, the server appends the new pair with a single
+Postgres `jsonb ||` update so concurrent requests from multiple tabs concatenate instead of overwriting the whole
+`messages` array.
 
 **Code snippet** (`apps/api/src/features/chat/chat.routes.ts`)
 
@@ -291,7 +300,7 @@ Each prompt graph node is created by `promptNodeFactory(deps, nodeName, isFinalP
 - on the **last** prompt step when `RunSkillDeps.onFinalLlmToken` is set (SSE chat), uses `ChatOpenAI.stream(...)` instead and forwards text deltas to the callback,
 - returns `{ output, intermediate }` to update the graph state.
 
-The HTTP response returns **only** the final LLM reply (`output`) plus a generated `traceId` (JSON mode), or streams token events then `done` (SSE). It does **not** return raw retrieved chunks (`context`) to the client.
+The HTTP response returns **only** the final LLM reply (`output`) plus a generated `traceId` and the persisted `conversationId` / `conversationTitle` (JSON mode), or streams token events then `conversation` + `done` (SSE). It does **not** return raw retrieved chunks (`context`) to the client.
 
 **Code snippet** (`apps/api/src/lib/agent/runtime.ts`)
 

@@ -23,5 +23,9 @@ export function RequireAuth() {
     return <Navigate to="/login" replace state={{ from: returnTo }} />;
   }
 
-  return <Outlet />;
+  return (
+    <div className="flex h-svh max-h-svh min-h-0 flex-col overflow-hidden bg-background">
+      <Outlet />
+    </div>
+  );
 }
