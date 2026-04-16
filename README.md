@@ -1,4 +1,4 @@
-# AI Marketplace Platform
+# AI Marketplace Platform - Place to share skills between departments in organization
 
 Monorepo for an internal-style **AI marketplace**: JWT auth, org-scoped **prompt nodes** and **skills** (ordered workflows), **marketplace** listing, **document upload + RAG** (S3/MinIO, Weaviate, embeddings), and **chat** that runs installed skills.
 
@@ -102,3 +102,58 @@ docs/document.md         # Document upload → ingest write path
 On push/PR to `master`: install, build workspaces, **Vitest** (`@aimarketplace/api`), **Playwright** E2E. No Promptfoo/RAGAS jobs in the workflow file.
 
 Optional **LangSmith** tracing works when `LANGSMITH_*` env vars are set (LangChain); nothing in CI requires them.
+
+---
+
+## Example: compliance node library & skills (optional catalog)
+
+These are **ideas** for org-scoped **nodes** (prompt templates, `snake_case` names) you build once in the UI, then wire into **skills** as ordered node lists. When the document pipeline is enabled, add implicit retrieval by including `retrieve_documents` in the skill or relying on the runtime to prepend it once per request (see `docs/spec.md` §8).
+
+### Reusable “compliance node library” (build once, mix into many skills)
+
+| Node name | What it does |
+|-----------|----------------|
+| `compliance_intake_normalize` | Turns messy questions into a structured brief (product, jurisdiction, date range, “must/should/may”, definitions). |
+| `policy_retrieval_gap_check` | Given `{{context}}`, lists what’s covered vs missing; asks clarifying questions if context is thin. |
+| `regulatory_delta_scan` | Compares two policy versions (e.g. pass the prior version in the prompt or split across templates / follow-up turns). |
+| `control_mapping_mapper` | Maps a requirement clause → SOC2/ISO/NIST-style control statements + evidence expectations. |
+| `risk_register_draft` | Severity/likelihood, triggers, mitigations, owners, review cadence. |
+| `audit_evidence_pack_outline` | “Evidence index” table: control → artifact type → where it lives → freshness. |
+| `vendor_dpa_clause_review` | Flags risky clauses vs your baseline posture (DPAs, SCCs, BAA-ish concepts). |
+| `incident_timeline_builder` | Chronological narrative suitable for regulators/legal review. |
+| `customer_comms_drafter` | External-safe comms with tone levels (internal / customer / regulator-facing) without overclaiming. |
+| `executive_one_pager` | Crisp summary with decisions needed + risks + deadlines. |
+
+### “Very cool / impressive” skills (pitch-style)
+
+1. **`compliance_copilot`** (default hero skill)  
+   **Nodes:** `compliance_intake_normalize` → `policy_retrieval_gap_check` → `executive_one_pager`  
+   **Why:** Feels like a staffed compliance desk: structured intake, grounded answers, exec-ready output.
+
+2. **`audit_readiness_assistant`**  
+   **Nodes:** `compliance_intake_normalize` → `control_mapping_mapper` → `audit_evidence_pack_outline` → `risk_register_draft`  
+   **Why:** Turns “we might get audited” into an actionable evidence story, not generic chat.
+
+3. **`policy_change_impact_report`**  
+   **Nodes:** `compliance_intake_normalize` → `regulatory_delta_scan` → `risk_register_draft` → `customer_comms_drafter`  
+   **Why:** Release-style workflow: what changed, what breaks, what to tell customers.
+
+4. **`vendor_contract_red_flag_review`**  
+   **Nodes:** `compliance_intake_normalize` → `vendor_dpa_clause_review` → `risk_register_draft` → `executive_one_pager`  
+   **Why:** Procurement + legal: fast triage with a decision memo.
+
+5. **`incident_response_playbook_helper`**  
+   **Nodes:** `compliance_intake_normalize` → `incident_timeline_builder` → `customer_comms_drafter` → `audit_evidence_pack_outline`  
+   **Why:** High-stakes incident mode: timeline + comms + evidence index.
+
+6. **`reg_interpretation_memo`**  
+   **Nodes:** `compliance_intake_normalize` → `policy_retrieval_gap_check` → `executive_one_pager`  
+   **Why:** Memo mode stays credible when grounded in internal policy excerpts (`{{context}}`).
+
+7. **`control_testing_script_generator`** (ITGC / operational controls)  
+   **Nodes:** `control_mapping_mapper` → `audit_evidence_pack_outline` → `risk_register_draft`  
+   **Why:** Workpaper-shaped output: controls, tests, expected evidence, failure modes.
+
+8. **`customer_trust_faq_builder`**  
+   **Nodes:** `policy_retrieval_gap_check` → `customer_comms_drafter` → `executive_one_pager`  
+   **Why:** Security/compliance + marketing: FAQs grounded in your own docs.
