@@ -7,7 +7,6 @@ import { RequireAuth } from "@/auth/RequireAuth";
 import { AppLayout } from "@/components/AppLayout";
 import { ChatPage } from "@/pages/ChatPage";
 import { DocsRagPage } from "@/pages/DocsRagPage";
-import { HomePage } from "@/pages/HomePage";
 import { MarketplacePage } from "@/pages/MarketplacePage";
 import { NodeBuilderPage } from "@/pages/NodeBuilderPage";
 import { SkillBuilderPage } from "@/pages/SkillBuilderPage";
@@ -27,7 +26,7 @@ createRoot(document.getElementById("root")!).render(
           <Route path="/nodes/build" element={<Navigate to="/nodes" replace />} />
           <Route element={<RequireAuth />}>
             <Route element={<AppLayout />}>
-              <Route path="/" element={<HomePage />} />
+              <Route path="/" element={<ChatPage />} />
               <Route path="/chat" element={<ChatPage />} />
               <Route path="/nodes" element={<NodeBuilderPage />} />
               <Route path="/skills" element={<SkillBuilderPage />} />

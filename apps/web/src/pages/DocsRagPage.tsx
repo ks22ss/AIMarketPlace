@@ -132,7 +132,7 @@ export function DocsRagPage() {
             <p className="text-sm text-muted-foreground">
               Upload and index files and manage stored documents (Postgres + S3 + Weaviate). Ask questions over your
               indexed content in{" "}
-              <Link to="/chat" className="font-medium text-primary underline-offset-4 hover:underline">
+              <Link to="/" className="font-medium text-primary underline-offset-4 hover:underline">
                 Chat
               </Link>
               .
