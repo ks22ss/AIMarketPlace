@@ -15,6 +15,12 @@ import { effectiveOrgId, userMatchesAllowLists } from "../nodes/access.js";
 import type { DocumentPipeline } from "../docs/document.pipeline.js";
 import { runSkill } from "../../lib/agent/runtime.js";
 import { normalizeUserRoleSlug } from "../../lib/user-roles.js";
+import {
+  newMessageId,
+  nowIso,
+  upsertConversationTurn,
+  type StoredChatMessage,
+} from "./chat-history.js";
 
 export type ChatRouterDeps = {
   prisma: PrismaClient;
@@ -38,7 +44,13 @@ type PreparedChatUser = {
 };
 
 type PrepareChatResult =
-  | { ok: true; user: PreparedChatUser; org: string; nodeNames: string[] }
+  | {
+      ok: true;
+      user: PreparedChatUser;
+      org: string;
+      nodeNames: string[];
+      conversationId: string | null;
+    }
   | { ok: false; status: number; body: Record<string, unknown> };
 
 async function prepareChatExecution(
@@ -116,7 +128,23 @@ async function prepareChatExecution(
     nodeNames = parseSkillNodes(skill.skillNodes);
   }
 
-  return { ok: true, user, org, nodeNames };
+  let conversationId: string | null = null;
+  if (body.conversation_id) {
+    const existing = await deps.prisma.chatConversation.findUnique({
+      where: { conversationId: body.conversation_id },
+      select: { conversationId: true, userId: true },
+    });
+    if (!existing || existing.userId !== user.userId) {
+      return {
+        ok: false,
+        status: 404,
+        body: { error: "Conversation not found" },
+      };
+    }
+    conversationId = existing.conversationId;
+  }
+
+  return { ok: true, user, org, nodeNames, conversationId };
 }
 
 function wantsChatSse(request: Request): boolean {
@@ -179,9 +207,16 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         return;
       }
 
-      const { user, org, nodeNames } = prepared;
+      const { user, org, nodeNames, conversationId } = prepared;
       const chatModel = deps.chatModel;
       const traceId = randomUUID();
+      const userMessage: StoredChatMessage = {
+        id: newMessageId(),
+        role: "user",
+        content: parsed.data.message,
+        createdAt: nowIso(),
+      };
+      const skillIdForPersist = parsed.data.skill_id ?? null;
 
       const runSkillBase = {
         prisma: deps.prisma,
@@ -197,6 +232,25 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
         orgScope: org,
       };
 
+      async function persistTurn(reply: string): Promise<{ conversationId: string; title: string }> {
+        const assistantMessage: StoredChatMessage = {
+          id: newMessageId(),
+          role: "assistant",
+          content: reply,
+          traceId,
+          createdAt: nowIso(),
+        };
+        return upsertConversationTurn({
+          prisma: deps.prisma,
+          userId: user.userId,
+          orgId: user.orgId,
+          conversationId,
+          skillId: skillIdForPersist,
+          userMessage,
+          assistantMessage,
+        });
+      }
+
       if (wantsChatSse(request)) {
         beginSse(response);
         writeSseEvent(response, "meta", { trace_id: traceId });
@@ -210,7 +264,16 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
             initial,
           );
           const reply = resolveReplyFromFinalState(finalState.output);
-          writeSseEvent(response, "done", { reply });
+          const persisted = await persistTurn(reply);
+          writeSseEvent(response, "conversation", {
+            conversation_id: persisted.conversationId,
+            title: persisted.title,
+          });
+          writeSseEvent(response, "done", {
+            reply,
+            conversation_id: persisted.conversationId,
+            title: persisted.title,
+          });
           response.end();
         } catch (error) {
           const message = error instanceof Error ? error.message : "Chat failed";
@@ -223,10 +286,13 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
       const finalState = await runSkill(runSkillBase, nodeNames, initial);
 
       const reply = resolveReplyFromFinalState(finalState.output);
+      const persisted = await persistTurn(reply);
 
       const payload: ChatPostResponse = {
         reply,
         traceId,
+        conversationId: persisted.conversationId,
+        conversationTitle: persisted.title,
       };
       response.json(payload);
     } catch (error) {

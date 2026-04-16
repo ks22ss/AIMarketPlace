@@ -6,6 +6,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { createAuthRouter } from "./features/auth/auth.routes.js";
 import { createChatModelFromEnv } from "./features/chat/chat-llm.js";
 import { createChatRouter } from "./features/chat/chat.routes.js";
+import { createChatConversationsRouter } from "./features/chat/conversation.routes.js";
 import { createConfigRouter } from "./features/config/config.routes.js";
 import { createDocumentPipelineFromEnv } from "./features/docs/docs.factory.js";
 import { createDocsRouter } from "./features/docs/docs.routes.js";
@@ -75,6 +76,7 @@ async function start(): Promise<void> {
     );
   }
 
+  app.use("/api/chat/conversations", createChatConversationsRouter(prisma));
   app.use(
     "/api/chat",
     createChatRouter({

@@ -17,6 +17,11 @@ export type MeResponse = {
 export const chatPostBodySchema = z.object({
   message: z.string().min(1).max(16_000),
   skill_id: z.string().uuid().optional(),
+  /**
+   * Optional existing conversation id. When set, the server appends the user + assistant
+   * messages to it. When omitted, the server creates a new conversation and returns its id.
+   */
+  conversation_id: z.string().uuid().optional(),
 });
 
 export type ChatPostBody = z.infer<typeof chatPostBodySchema>;
@@ -24,20 +29,76 @@ export type ChatPostBody = z.infer<typeof chatPostBodySchema>;
 export type ChatPostResponse = {
   reply: string;
   traceId: string;
+  /** Conversation the reply was appended to (or freshly created). */
+  conversationId: string;
+  /** Current title for the conversation. */
+  conversationTitle: string;
 };
 
 /**
  * When `POST /api/chat` is sent with `Accept: text/event-stream`, the response is SSE (not JSON).
  * Event names and JSON payloads:
  * - `meta`: `{ "trace_id": string }`
+ * - `conversation`: `{ "conversation_id": string, "title": string }` (emitted once after `meta`)
  * - `token`: `{ "delta": string }` (zero or more; concatenate for the assistant text)
- * - `done`: `{ "reply": string }` (full trimmed reply)
+ * - `done`: `{ "reply": string, "conversation_id": string, "title": string }` (full trimmed reply)
  * - `error`: `{ "message": string, "code"?: string }` (terminal)
  */
 export type ChatSseMetaPayload = { trace_id: string };
+export type ChatSseConversationPayload = { conversation_id: string; title: string };
 export type ChatSseTokenPayload = { delta: string };
-export type ChatSseDonePayload = { reply: string };
+export type ChatSseDonePayload = { reply: string; conversation_id: string; title: string };
 export type ChatSseErrorPayload = { message: string; code?: string };
+
+/** GET /api/chat/conversations - lightweight list for the sidebar. */
+export type ChatConversationSummaryDto = {
+  conversation_id: string;
+  title: string;
+  skill_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ChatConversationsListResponse = {
+  conversations: ChatConversationSummaryDto[];
+};
+
+export type ChatConversationMessageDto = {
+  id: string;
+  role: "user" | "assistant";
+  /** Full stored text, may include raw `<think>...</think>` blocks the client collapses. */
+  content: string;
+  trace_id?: string;
+  created_at: string;
+};
+
+/** GET /api/chat/conversations/:id - full conversation. */
+export type ChatConversationDto = {
+  conversation_id: string;
+  title: string;
+  skill_id: string | null;
+  created_at: string;
+  updated_at: string;
+  messages: ChatConversationMessageDto[];
+};
+
+/** PATCH /api/chat/conversations/:id */
+export const chatConversationRenameBodySchema = z.object({
+  title: z.string().min(1).max(120),
+});
+
+export type ChatConversationRenameBody = z.infer<typeof chatConversationRenameBodySchema>;
+
+export type ChatConversationRenameResponse = {
+  conversation_id: string;
+  title: string;
+};
+
+/** DELETE /api/chat/conversations/:id */
+export type ChatConversationDeleteResponse = {
+  deleted: true;
+  conversation_id: string;
+};
 
 /** POST /api/nodes - request body schema for create. */
 export const nodeCreateBodySchema = z.object({

@@ -38,11 +38,12 @@ model User {
   llmConfig    Json     @default("{}") @map("llm_config")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  department    Department @relation(fields: [departmentId], references: [departmentId])
-  skillsCreated Skill[]    @relation("SkillCreatedBy")
-  nodesCreated  Node[]     @relation("NodeCreatedBy")
-  userSkills    UserSkill[]
-  documents     Document[]
+  department        Department         @relation(fields: [departmentId], references: [departmentId])
+  skillsCreated     Skill[]            @relation("SkillCreatedBy")
+  nodesCreated      Node[]             @relation("NodeCreatedBy")
+  userSkills        UserSkill[]
+  documents         Document[]
+  chatConversations ChatConversation[]
 
   @@map("users")
 }
@@ -128,6 +129,24 @@ model Document {
   department Department @relation(fields: [departmentId], references: [departmentId])
 
   @@map("documents")
+}
+
+/// Per-user chat history. Messages are stored as a JSONB array for simplicity (one row per conversation).
+/// Each message: { id, role: "user"|"assistant", content, reasoning?, traceId?, createdAt }.
+model ChatConversation {
+  conversationId String   @id @default(uuid()) @map("conversation_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  orgId          String?  @map("org_id") @db.Uuid
+  title          String
+  skillId        String?  @map("skill_id") @db.Uuid
+  messages       Json     @default("[]")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("chat_conversations")
 }
 
 /// Spec section 4 - user_skills (installed skills)

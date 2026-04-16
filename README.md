@@ -59,7 +59,7 @@ Chat-time retrieval uses the same pipeline with **limit 12** when the synthetic 
 - Skills store an ordered list of **node names** (plus optional implicit `retrieve_documents` when the pipeline is enabled).
 - **Nodes** are DB-backed prompt templates with `{{query}}`, `{{context}}`, `{{output}}` substitution.
 - **Runtime:** `runSkill` builds a **LangGraph** graph per request (linear `START → … → END`); see `docs/chat.md` and `docs/spec.md` §8.
-- **POST `/api/chat`** requires an **installed** skill (`POST /api/skills/install`), matching allow lists, and a configured chat API key / model (`chat-llm.ts`). The web UI uses **SSE** (`Accept: text/event-stream`) so the final LLM step streams token deltas; JSON `{ reply, traceId }` is still available without that header.
+- **POST `/api/chat`** requires an **installed** skill (`POST /api/skills/install`), matching allow lists, and a configured chat API key / model (`chat-llm.ts`). The web UI uses **SSE** (`Accept: text/event-stream`) so the final LLM step streams token deltas; JSON `{ reply, traceId, conversationId, conversationTitle }` is still available without that header. Every turn is persisted to `chat_conversations` (per-user JSONB history); manage it via `GET/PATCH/DELETE /api/chat/conversations(/:id)`.
 - **Tools**: `GET /api/tools` returns an empty list; `POST /api/tools/register` does not persist — stubs only.
 - **PUT `/api/config/llm`**: validates input and returns a payload; **does not save** user LLM preferences to the database.
 

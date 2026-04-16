@@ -41,13 +41,49 @@ test("marketplace can install a skill and deep-link to chat", async ({ page }) =
 test("chat can send a message and display assistant reply", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByText("Conversation")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "New chat" })).toBeVisible();
 
-  await page.getByPlaceholder("Ask something about your uploaded documents…").fill("Hello");
+  await page.getByPlaceholder("Message...").fill("Hello");
   await page.getByRole("button", { name: "Send" }).click();
 
   await expect(page.getByText("Hello", { exact: true })).toBeVisible();
   await expect(page.getByText("Echo: Hello")).toBeVisible();
+  // After reply, the conversation is persisted and shows in the right sidebar.
+  await expect(
+    page.getByLabel("Chat history").getByText("Echo: Hello"),
+  ).toBeVisible();
+});
+
+test("chat collapses <think> reasoning and keeps it togglable", async ({ page }) => {
+  // Intercept chat to return a reply containing a think block.
+  await page.route("**/api/chat", async (route) => {
+    const reply = "<think>internal reasoning chain</think>Final answer: 42";
+    const body =
+      `event: meta\ndata: ${JSON.stringify({ trace_id: "trace_t" })}\n\n` +
+      `event: token\ndata: ${JSON.stringify({ delta: reply })}\n\n` +
+      `event: conversation\ndata: ${JSON.stringify({ conversation_id: "conv_think", title: "Final answer: 42" })}\n\n` +
+      `event: done\ndata: ${JSON.stringify({ reply, conversation_id: "conv_think", title: "Final answer: 42" })}\n\n`;
+    await route.fulfill({
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache",
+      },
+      body,
+    });
+  });
+
+  await page.goto("/");
+  await page.getByPlaceholder("Message...").fill("What is 6x7?");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  // Visible content shows after </think>, reasoning is NOT directly visible until toggled.
+  await expect(page.getByText("Final answer: 42")).toBeVisible();
+  await expect(page.getByText("internal reasoning chain")).not.toBeVisible();
+
+  // Expand the reasoning block.
+  await page.getByRole("button", { name: /^Reasoning/ }).click();
+  await expect(page.getByText("internal reasoning chain")).toBeVisible();
 });
 
 test("documents upload flow completes (presign → PUT → ingest)", async ({ page }) => {

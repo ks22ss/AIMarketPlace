@@ -1,20 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { BotIcon, Loader2Icon, SendHorizonalIcon, UserIcon } from "lucide-react";
+import {
+  BotIcon,
+  ChevronDown,
+  ChevronRight,
+  Loader2Icon,
+  SendHorizonalIcon,
+  UserIcon,
+} from "lucide-react";
 
 import { useAuth } from "@/auth/AuthContext";
+import { ChatHistorySidebar } from "@/components/chat/ChatHistorySidebar";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { postChatStream } from "@/lib/chatClient";
+import { getConversation } from "@/lib/chatHistoryClient";
 import { listSkills, type SkillSummaryDto } from "@/lib/skillsClient";
+import { splitThinkText } from "@/lib/thinkSplitter";
+import { useStickyBoolean } from "@/lib/useStickyBoolean";
 import { cn } from "@/lib/utils";
 
 type ChatRole = "user" | "assistant";
@@ -23,11 +26,14 @@ type ChatLine = {
   id: string;
   role: ChatRole;
   content: string;
+  reasoning: string;
+  reasoningOpen: boolean;
+  isStreaming: boolean;
   traceId?: string;
 };
 
 const textareaClass =
-  "min-h-[72px] w-full resize-y rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30";
+  "min-h-[56px] w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30";
 
 const chatStreamTimeoutMs = 180_000;
 
@@ -35,10 +41,63 @@ function newId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function tailPreview(text: string, max = 60): string {
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  if (collapsed.length <= max) {
+    return collapsed;
+  }
+  return `...${collapsed.slice(collapsed.length - max)}`;
+}
+
+type ReasoningBlockProps = {
+  reasoning: string;
+  open: boolean;
+  isStreaming: boolean;
+  onToggle: () => void;
+};
+
+function ReasoningBlock({ reasoning, open, isStreaming, onToggle }: ReasoningBlockProps): JSX.Element {
+  if (reasoning.length === 0 && !isStreaming) {
+    return <></>;
+  }
+  const label = isStreaming ? "Thinking" : "Reasoning";
+  return (
+    <div className="mb-2 rounded-md border border-dashed border-muted bg-muted/20 text-xs">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-muted-foreground hover:text-foreground"
+        aria-expanded={open}
+      >
+        {open ? (
+          <ChevronDown className="size-3.5 shrink-0" aria-hidden />
+        ) : (
+          <ChevronRight className="size-3.5 shrink-0" aria-hidden />
+        )}
+        <span className="font-medium">{label}</span>
+        {!open && reasoning.length > 0 ? (
+          <span className="ml-1 min-w-0 flex-1 truncate italic opacity-80">
+            {tailPreview(reasoning)}
+          </span>
+        ) : null}
+        {isStreaming ? (
+          <Loader2Icon className="ml-auto size-3.5 shrink-0 animate-spin" aria-hidden />
+        ) : null}
+      </button>
+      {open ? (
+        <div className="whitespace-pre-wrap wrap-break-word border-t border-dashed border-muted px-2.5 py-2 text-muted-foreground">
+          {reasoning || (isStreaming ? "..." : "")}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ChatPage() {
   const { accessToken, authLoading } = useAuth();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const urlSkillId = searchParams.get("skill_id");
+  const urlConversationId = searchParams.get("c");
   const [lines, setLines] = useState<ChatLine[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -48,7 +107,16 @@ export function ChatPage() {
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [urlSkillWarning, setUrlSkillWarning] = useState<string | null>(null);
   const [selectedSkillId, setSelectedSkillId] = useState<string>("");
+  const [historyCollapsed, setHistoryCollapsed] = useStickyBoolean(
+    "sidebar.right.collapsed",
+    false,
+  );
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(
+    urlConversationId,
+  );
+  const [loadingConversation, setLoadingConversation] = useState(false);
   const listEndRef = useRef<HTMLDivElement | null>(null);
+  const refreshHistoryRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,6 +177,63 @@ export function ChatPage() {
     });
   }, [accessToken, skills, skillsLoading, urlSkillId]);
 
+  useEffect(() => {
+    setActiveConversationId(urlConversationId);
+  }, [urlConversationId]);
+
+  useEffect(() => {
+    if (!accessToken || !activeConversationId) {
+      return;
+    }
+    let cancelled = false;
+    setLoadingConversation(true);
+    void (async () => {
+      try {
+        const conv = await getConversation(accessToken, activeConversationId);
+        if (cancelled) return;
+        const nextLines: ChatLine[] = conv.messages.map((msg) => {
+          if (msg.role === "assistant") {
+            const { content, reasoning } = splitThinkText(msg.content);
+            return {
+              id: msg.id,
+              role: "assistant" as const,
+              content,
+              reasoning,
+              reasoningOpen: false,
+              isStreaming: false,
+              traceId: msg.trace_id,
+            };
+          }
+          return {
+            id: msg.id,
+            role: "user" as const,
+            content: msg.content,
+            reasoning: "",
+            reasoningOpen: false,
+            isStreaming: false,
+            traceId: msg.trace_id,
+          };
+        });
+        setLines(nextLines);
+        if (conv.skill_id) {
+          setSelectedSkillId(conv.skill_id);
+        }
+        setError(null);
+      } catch (e: unknown) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Failed to load conversation");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingConversation(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, activeConversationId]);
+
   const selectedSkill = useMemo(
     () => skills.find((s) => s.skill_id === selectedSkillId),
     [skills, selectedSkillId],
@@ -120,6 +245,38 @@ export function ChatPage() {
     listEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [lines, sending]);
 
+  const selectConversation = useCallback(
+    (id: string | null) => {
+      setActiveConversationId(id);
+      setError(null);
+      setLines(id ? (prev) => prev : []);
+      if (!id) {
+        setLines([]);
+      }
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (id) {
+            next.set("c", id);
+          } else {
+            next.delete("c");
+          }
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const toggleReasoning = useCallback((assistantId: string) => {
+    setLines((prev) =>
+      prev.map((line) =>
+        line.id === assistantId ? { ...line, reasoningOpen: !line.reasoningOpen } : line,
+      ),
+    );
+  }, []);
+
   const send = useCallback(async () => {
     const trimmed = draft.trim();
     if (!trimmed || !accessToken || sending) {
@@ -130,12 +287,27 @@ export function ChatPage() {
     setError(null);
     setDraft("");
 
-    const userLine: ChatLine = { id: newId(), role: "user", content: trimmed };
+    const userLine: ChatLine = {
+      id: newId(),
+      role: "user",
+      content: trimmed,
+      reasoning: "",
+      reasoningOpen: false,
+      isStreaming: false,
+    };
     const assistantId = newId();
     setLines((previous) => [
       ...previous,
       userLine,
-      { id: assistantId, role: "assistant", content: "", traceId: undefined },
+      {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        reasoning: "",
+        reasoningOpen: false,
+        isStreaming: true,
+        traceId: undefined,
+      },
     ]);
 
     const controller = new AbortController();
@@ -144,28 +316,78 @@ export function ChatPage() {
       const result = await postChatStream(
         accessToken,
         trimmed,
-        selectedSkillId ? { skill_id: selectedSkillId } : undefined,
+        {
+          ...(selectedSkillId ? { skill_id: selectedSkillId } : {}),
+          ...(activeConversationId ? { conversation_id: activeConversationId } : {}),
+        },
         {
           onMeta: ({ trace_id }) => {
             setLines((previous) =>
-              previous.map((line) => (line.id === assistantId ? { ...line, traceId: trace_id } : line)),
+              previous.map((line) =>
+                line.id === assistantId ? { ...line, traceId: trace_id } : line,
+              ),
             );
+          },
+          onConversation: ({ conversation_id }) => {
+            if (!activeConversationId) {
+              setActiveConversationId(conversation_id);
+              setSearchParams(
+                (prev) => {
+                  const next = new URLSearchParams(prev);
+                  next.set("c", conversation_id);
+                  return next;
+                },
+                { replace: true },
+              );
+            }
           },
           onToken: (delta) => {
             setLines((previous) =>
-              previous.map((line) => (line.id === assistantId ? { ...line, content: line.content + delta } : line)),
+              previous.map((line) =>
+                line.id === assistantId
+                  ? { ...line, content: line.content + delta }
+                  : line,
+              ),
+            );
+          },
+          onReasoningDelta: (delta) => {
+            setLines((previous) =>
+              previous.map((line) =>
+                line.id === assistantId
+                  ? { ...line, reasoning: line.reasoning + delta }
+                  : line,
+              ),
             );
           },
         },
         controller.signal,
       );
+      const { content, reasoning } = splitThinkText(result.reply);
       setLines((previous) =>
         previous.map((line) =>
           line.id === assistantId
-            ? { ...line, content: result.reply, traceId: result.traceId || line.traceId }
+            ? {
+                ...line,
+                content,
+                reasoning,
+                isStreaming: false,
+                traceId: result.traceId || line.traceId,
+              }
             : line,
         ),
       );
+      if (!activeConversationId && result.conversationId) {
+        setActiveConversationId(result.conversationId);
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.set("c", result.conversationId);
+            return next;
+          },
+          { replace: true },
+        );
+      }
+      refreshHistoryRef.current?.();
     } catch (err: unknown) {
       const message =
         err instanceof Error && err.name === "AbortError"
@@ -176,200 +398,220 @@ export function ChatPage() {
       setError(message);
       setLines((previous) =>
         previous.map((line) =>
-          line.id === assistantId ? { ...line, content: `Error: ${message}` } : line,
+          line.id === assistantId
+            ? { ...line, content: `Error: ${message}`, isStreaming: false }
+            : line,
         ),
       );
     } finally {
       clearTimeout(timer);
       setSending(false);
     }
-  }, [accessToken, draft, selectedSkillId, sending]);
+  }, [accessToken, activeConversationId, draft, selectedSkillId, sending, setSearchParams]);
+
+  if (authLoading) {
+    return (
+      <main className="flex flex-1 items-center justify-center px-4 py-10">
+        <p className="text-sm text-muted-foreground">Checking session...</p>
+      </main>
+    );
+  }
+
+  if (!accessToken) {
+    return (
+      <main className="flex flex-1 items-center justify-center px-4 py-10">
+        <div className="flex max-w-sm flex-col gap-3 rounded-lg border bg-background p-6 shadow-sm">
+          <h1 className="font-heading text-lg font-semibold tracking-tight">Sign in required</h1>
+          <p className="text-sm text-muted-foreground">
+            Chat is authenticated and uses your uploaded document index.
+          </p>
+          <Button type="button" asChild>
+            <Link to="/login">Sign in</Link>
+          </Button>
+        </div>
+      </main>
+    );
+  }
 
   return (
-    <main className="flex min-h-svh flex-col items-center px-4 py-10">
-      <div className="flex w-full max-w-2xl flex-col gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Skill chat</h1>
-          <p className="text-sm text-muted-foreground">
-            Chat always uses the model (and document retrieval when configured). Optional{" "}
-            <strong>installed</strong> skills add workflow steps — pick one below or leave{" "}
-            <em>Default chat</em>. Browse the{" "}
-            <Link to="/marketplace" className="text-primary underline-offset-4 hover:underline">
-              Marketplace
-            </Link>
-            , build nodes on the{" "}
-            <Link to="/skills" className="text-primary underline-offset-4 hover:underline">
-              Skill builder
-            </Link>
-            .
-          </p>
+    <div className="flex min-h-svh min-w-0 flex-1">
+      <main className="flex min-h-svh min-w-0 flex-1 flex-col">
+        <div className="flex items-center justify-between gap-3 border-b bg-background/80 px-6 py-3 backdrop-blur">
+          <div className="flex min-w-0 flex-col">
+            <h1 className="truncate font-heading text-base font-semibold tracking-tight">
+              {activeConversationId ? "Conversation" : "New chat"}
+            </h1>
+            <p className="truncate text-xs text-muted-foreground">
+              {selectedSkill ? `Skill: ${selectedSkill.name}` : "Default chat (model + retrieval only)"}
+            </p>
+          </div>
         </div>
 
-        {authLoading ? <p className="text-sm text-muted-foreground">Checking session…</p> : null}
-
-        {!authLoading && !accessToken ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>Sign in required</CardTitle>
-              <CardDescription>Chat is authenticated and uses your uploaded document index.</CardDescription>
-            </CardHeader>
-            <CardFooter>
-              <Button type="button" asChild>
-                <Link to="/login">Sign in</Link>
-              </Button>
-            </CardFooter>
-          </Card>
-        ) : null}
-
-        {!authLoading && accessToken ? (
-          <Card className="flex flex-col overflow-hidden">
-            <CardHeader className="border-b pb-4">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <BotIcon className="size-5 opacity-80" />
-                Conversation
-              </CardTitle>
-              <CardDescription>Messages stay in this browser tab until you refresh.</CardDescription>
-            </CardHeader>
-            <CardContent className="flex max-h-[min(520px,70vh)] flex-col gap-3 overflow-y-auto px-4 py-4">
-              {skillsLoading ? (
-                <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2Icon className="size-4 animate-spin" aria-hidden />
-                  Loading installed skills…
-                </p>
-              ) : null}
-              {!skillsLoading ? (
-                <div className="flex flex-col gap-2">
-                  {hideSkillPicker ? (
-                    <>
-                      <Label>Skill</Label>
-                      <div className="flex flex-col gap-1 rounded-md border border-input bg-muted/20 px-3 py-2 text-sm">
-                        <span className="font-medium text-foreground">{selectedSkill?.name ?? "Skill"}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {selectedSkill?.access_summary ?? ""}
-                        </span>
-                        <Link
-                          to="/"
-                          replace
-                          className="text-xs font-medium text-primary underline-offset-4 hover:underline"
-                        >
-                          Change skill
-                        </Link>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <Label htmlFor="skill-pick">Skill</Label>
-                      <select
-                        id="skill-pick"
-                        className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
-                        value={selectedSkillId}
-                        onChange={(e) => setSelectedSkillId(e.target.value)}
-                        disabled={sending}
-                      >
-                        <option value="">Default chat (model + retrieval only)</option>
-                        {skills.map((s) => (
-                          <option key={s.skill_id} value={s.skill_id}>
-                            {s.name}
-                            {s.nodes.length > 0 ? ` (${s.nodes.join(" → ")})` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </>
-                  )}
-                  {skillsError ? (
-                    <p className="text-xs text-destructive" role="alert">
-                      {skillsError}
-                    </p>
-                  ) : null}
-                  {urlSkillWarning ? (
-                    <p className="text-xs text-amber-700 dark:text-amber-400" role="status">
-                      {urlSkillWarning}
-                    </p>
-                  ) : null}
-                  {skills.length === 0 && !skillsLoading ? (
-                    <p className="text-xs text-muted-foreground">
-                      No optional workflows installed — you can still use default chat. Add skills from the{" "}
-                      <Link to="/marketplace" className="font-medium text-primary underline-offset-4 hover:underline">
-                        Marketplace
-                      </Link>
-                      .
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-              {lines.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Send a message — the model replies every time.</p>
-              ) : null}
-              {lines.map((line) => (
-                <div
-                  key={line.id}
-                  className={cn(
-                    "flex gap-2 rounded-lg border px-3 py-2 text-sm",
-                    line.role === "user" ? "ml-8 border-primary/25 bg-primary/5" : "mr-8 border-muted bg-muted/30",
-                  )}
-                >
-                  <div className="mt-0.5 shrink-0 text-muted-foreground">
-                    {line.role === "user" ? <UserIcon className="size-4" /> : <BotIcon className="size-4" />}
-                  </div>
-                  <div className="min-w-0 flex-1 whitespace-pre-wrap wrap-break-word text-foreground">
-                    {line.role === "assistant" && line.content === "" && sending ? (
+        <section
+          className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 py-5"
+          aria-label="Conversation"
+        >
+          {loadingConversation ? (
+            <p className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2Icon className="size-4 animate-spin" aria-hidden />
+              Loading conversation...
+            </p>
+          ) : null}
+          {!loadingConversation && lines.length === 0 ? (
+            <div className="mx-auto my-auto max-w-md text-center text-sm text-muted-foreground">
+              <p>Send a message to start a new conversation.</p>
+              <p className="mt-1 text-xs">
+                Browse the{" "}
+                <Link to="/marketplace" className="text-primary underline-offset-4 hover:underline">
+                  Marketplace
+                </Link>
+                {" "}to install skills, or build your own from the{" "}
+                <Link to="/skills" className="text-primary underline-offset-4 hover:underline">
+                  Skill builder
+                </Link>
+                .
+              </p>
+            </div>
+          ) : null}
+          {lines.map((line) => (
+            <div
+              key={line.id}
+              className={cn(
+                "flex gap-2 rounded-lg border px-3 py-2 text-sm",
+                line.role === "user"
+                  ? "ml-auto max-w-[80%] border-primary/25 bg-primary/5"
+                  : "mr-auto max-w-[85%] border-muted bg-muted/30",
+              )}
+            >
+              <div className="mt-0.5 shrink-0 text-muted-foreground">
+                {line.role === "user" ? (
+                  <UserIcon className="size-4" />
+                ) : (
+                  <BotIcon className="size-4" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1 whitespace-pre-wrap wrap-break-word text-foreground">
+                {line.role === "assistant" ? (
+                  <>
+                    <ReasoningBlock
+                      reasoning={line.reasoning}
+                      open={line.reasoningOpen}
+                      isStreaming={line.isStreaming && line.content === ""}
+                      onToggle={() => toggleReasoning(line.id)}
+                    />
+                    {line.content === "" && line.isStreaming && line.reasoning === "" ? (
                       <span className="inline-flex items-center gap-2 text-muted-foreground">
                         <Loader2Icon className="size-4 animate-spin" aria-hidden />
-                        Generating…
+                        Generating...
                       </span>
                     ) : (
                       line.content
                     )}
-                  </div>
+                  </>
+                ) : (
+                  line.content
+                )}
+              </div>
+            </div>
+          ))}
+          <div ref={listEndRef} />
+        </section>
+
+        <div className="flex flex-col gap-2 border-t bg-muted/10 px-6 py-4">
+          {error ? (
+            <p className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          ) : null}
+          {!skillsLoading ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {hideSkillPicker ? (
+                <div className="flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-xs">
+                  <Label className="text-xs font-medium text-muted-foreground">Skill</Label>
+                  <span className="font-medium text-foreground">{selectedSkill?.name ?? "Skill"}</span>
+                  <Link
+                    to="/"
+                    replace
+                    className="text-xs font-medium text-primary underline-offset-4 hover:underline"
+                  >
+                    Change
+                  </Link>
                 </div>
-              ))}
-              <div ref={listEndRef} />
-            </CardContent>
-            <CardFooter className="flex flex-col gap-3 border-t bg-muted/20 px-4 py-4">
-              {error ? (
-                <p className="w-full text-sm text-destructive" role="alert">
-                  {error}
-                </p>
+              ) : (
+                <>
+                  <Label htmlFor="skill-pick" className="text-xs font-medium text-muted-foreground">
+                    Skill
+                  </Label>
+                  <select
+                    id="skill-pick"
+                    className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                    value={selectedSkillId}
+                    onChange={(e) => setSelectedSkillId(e.target.value)}
+                    disabled={sending}
+                  >
+                    <option value="">Default chat (model + retrieval only)</option>
+                    {skills.map((s) => (
+                      <option key={s.skill_id} value={s.skill_id}>
+                        {s.name}
+                        {s.nodes.length > 0 ? ` (${s.nodes.join(" -> ")})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+              {skillsError ? (
+                <span className="text-xs text-destructive" role="alert">
+                  {skillsError}
+                </span>
               ) : null}
-              <div className="flex w-full flex-col gap-2">
-                <Label htmlFor="chat-input">Message</Label>
-                <textarea
-                  id="chat-input"
-                  className={cn(textareaClass)}
-                  placeholder="Ask something about your uploaded documents…"
-                  value={draft}
-                  disabled={sending}
-                  onChange={(event) => setDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      void send();
-                    }
-                  }}
-                />
-              </div>
-              <div className="flex w-full flex-wrap items-center justify-end gap-2">
-                <Button type="button" variant="outline" size="sm" disabled={sending} onClick={() => setLines([])}>
-                  Clear
-                </Button>
-                <Button type="button" disabled={sending || !draft.trim()} onClick={() => void send()}>
-                  {sending ? (
-                    <>
-                      <Loader2Icon className="size-4 animate-spin" data-icon="inline-start" />
-                      Send
-                    </>
-                  ) : (
-                    <>
-                      <SendHorizonalIcon className="size-4" data-icon="inline-start" />
-                      Send
-                    </>
-                  )}
-                </Button>
-              </div>
-            </CardFooter>
-          </Card>
-        ) : null}
-      </div>
-    </main>
+              {urlSkillWarning ? (
+                <span className="text-xs text-amber-700 dark:text-amber-400" role="status">
+                  {urlSkillWarning}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="flex items-end gap-2">
+            <textarea
+              id="chat-input"
+              className={cn(textareaClass, "flex-1")}
+              placeholder="Message..."
+              value={draft}
+              disabled={sending}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void send();
+                }
+              }}
+            />
+            <Button
+              type="button"
+              disabled={sending || !draft.trim()}
+              onClick={() => void send()}
+              className="shrink-0"
+            >
+              {sending ? (
+                <Loader2Icon className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <SendHorizonalIcon className="size-4" aria-hidden />
+              )}
+              <span className="ml-1.5">Send</span>
+            </Button>
+          </div>
+        </div>
+      </main>
+
+      <ChatHistorySidebar
+        accessToken={accessToken}
+        activeConversationId={activeConversationId}
+        collapsed={historyCollapsed}
+        onToggle={() => setHistoryCollapsed((v) => !v)}
+        onSelect={selectConversation}
+        refreshRef={refreshHistoryRef}
+      />
+    </div>
   );
 }

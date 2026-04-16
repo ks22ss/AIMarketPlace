@@ -25,6 +25,23 @@ export type MarketplaceSkill = {
   allow_department?: string[] | null;
 };
 
+export type MockConversationMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  trace_id?: string;
+  created_at: string;
+};
+
+export type MockConversation = {
+  conversation_id: string;
+  title: string;
+  skill_id: string | null;
+  created_at: string;
+  updated_at: string;
+  messages: MockConversationMessage[];
+};
+
 export type MockState = {
   accessToken: string;
   user: MockUser;
@@ -49,6 +66,7 @@ export type MockState = {
     chunk_count: number | null;
     weaviate_indexed: boolean;
   }[];
+  conversations: MockConversation[];
 };
 
 function json(route: Route, status: number, body: unknown) {
@@ -64,12 +82,25 @@ function wantsSse(request: Request): boolean {
   return accept.includes("text/event-stream");
 }
 
-function chatSseBody(reply: string, traceId: string): string {
+function chatSseBody(
+  reply: string,
+  traceId: string,
+  conversationId: string,
+  title: string,
+): string {
   return (
     `event: meta\ndata: ${JSON.stringify({ trace_id: traceId })}\n\n` +
     `event: token\ndata: ${JSON.stringify({ delta: reply })}\n\n` +
-    `event: done\ndata: ${JSON.stringify({ reply })}\n\n`
+    `event: conversation\ndata: ${JSON.stringify({ conversation_id: conversationId, title })}\n\n` +
+    `event: done\ndata: ${JSON.stringify({ reply, conversation_id: conversationId, title })}\n\n`
   );
+}
+
+function deriveMockTitle(reply: string): string {
+  const visible = reply.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/\s+/g, " ").trim();
+  if (visible.length === 0) return "New chat";
+  const words = visible.split(" ").slice(0, 6).join(" ");
+  return words.length > 48 ? `${words.slice(0, 45).trimEnd()}...` : words;
 }
 
 function unauthorized(route: Route) {
@@ -158,6 +189,7 @@ export function createDefaultMockState(): MockState {
         weaviate_indexed: true,
       },
     ],
+    conversations: [],
   };
 }
 
@@ -344,7 +376,84 @@ async function handleApiRoute(route: Route, request: Request, state: MockState):
     return;
   }
 
-  // Chat
+  // Chat conversations CRUD
+  if (path === "/api/chat/conversations" && method === "GET") {
+    if (!hasBearer(request, state.accessToken)) {
+      await unauthorized(route);
+      return;
+    }
+    const summaries = [...state.conversations]
+      .sort((a, b) => (b.updated_at > a.updated_at ? 1 : -1))
+      .map((c) => ({
+        conversation_id: c.conversation_id,
+        title: c.title,
+        skill_id: c.skill_id,
+        created_at: c.created_at,
+        updated_at: c.updated_at,
+      }));
+    await json(route, 200, { conversations: summaries });
+    return;
+  }
+  if (path.startsWith("/api/chat/conversations/") && method === "GET") {
+    if (!hasBearer(request, state.accessToken)) {
+      await unauthorized(route);
+      return;
+    }
+    const id = decodeURIComponent(path.split("/").pop() ?? "");
+    const found = state.conversations.find((c) => c.conversation_id === id);
+    if (!found) {
+      await json(route, 404, { error: "Conversation not found" });
+      return;
+    }
+    await json(route, 200, found);
+    return;
+  }
+  if (path.startsWith("/api/chat/conversations/") && method === "PATCH") {
+    if (!hasBearer(request, state.accessToken)) {
+      await unauthorized(route);
+      return;
+    }
+    const id = decodeURIComponent(path.split("/").pop() ?? "");
+    const body = (() => {
+      const raw = request.postData();
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw) as { title?: string };
+      } catch {
+        return null;
+      }
+    })();
+    const title = body?.title?.trim();
+    if (!title) {
+      await json(route, 400, { error: "Invalid request body" });
+      return;
+    }
+    const idx = state.conversations.findIndex((c) => c.conversation_id === id);
+    if (idx === -1) {
+      await json(route, 404, { error: "Conversation not found" });
+      return;
+    }
+    state.conversations[idx] = { ...state.conversations[idx], title };
+    await json(route, 200, { conversation_id: id, title });
+    return;
+  }
+  if (path.startsWith("/api/chat/conversations/") && method === "DELETE") {
+    if (!hasBearer(request, state.accessToken)) {
+      await unauthorized(route);
+      return;
+    }
+    const id = decodeURIComponent(path.split("/").pop() ?? "");
+    const idx = state.conversations.findIndex((c) => c.conversation_id === id);
+    if (idx === -1) {
+      await json(route, 404, { error: "Conversation not found" });
+      return;
+    }
+    state.conversations.splice(idx, 1);
+    await json(route, 200, { deleted: true, conversation_id: id });
+    return;
+  }
+
+  // Chat send
   if (path === "/api/chat" && method === "POST") {
     if (!hasBearer(request, state.accessToken)) {
       await unauthorized(route);
@@ -354,7 +463,11 @@ async function handleApiRoute(route: Route, request: Request, state: MockState):
       const raw = request.postData();
       if (!raw) return null;
       try {
-        return JSON.parse(raw) as { message?: string; skill_id?: string };
+        return JSON.parse(raw) as {
+          message?: string;
+          skill_id?: string;
+          conversation_id?: string;
+        };
       } catch {
         return null;
       }
@@ -369,6 +482,36 @@ async function handleApiRoute(route: Route, request: Request, state: MockState):
     }
     const reply = `Echo: ${body.message}`;
     const traceId = "trace_mock_1";
+    const nowIso = new Date().toISOString();
+    let conversation = body.conversation_id
+      ? state.conversations.find((c) => c.conversation_id === body.conversation_id) ?? null
+      : null;
+    if (!conversation) {
+      conversation = {
+        conversation_id: `conv_${Date.now()}`,
+        title: deriveMockTitle(reply),
+        skill_id: body.skill_id ?? null,
+        created_at: nowIso,
+        updated_at: nowIso,
+        messages: [],
+      };
+      state.conversations.unshift(conversation);
+    }
+    conversation.messages.push({
+      id: `m_${Date.now()}_u`,
+      role: "user",
+      content: body.message,
+      created_at: nowIso,
+    });
+    conversation.messages.push({
+      id: `m_${Date.now()}_a`,
+      role: "assistant",
+      content: reply,
+      trace_id: traceId,
+      created_at: nowIso,
+    });
+    conversation.updated_at = nowIso;
+
     if (wantsSse(request)) {
       await route.fulfill({
         status: 200,
@@ -376,11 +519,16 @@ async function handleApiRoute(route: Route, request: Request, state: MockState):
           "Content-Type": "text/event-stream; charset=utf-8",
           "Cache-Control": "no-cache",
         },
-        body: chatSseBody(reply, traceId),
+        body: chatSseBody(reply, traceId, conversation.conversation_id, conversation.title),
       });
       return;
     }
-    await json(route, 200, { reply, traceId });
+    await json(route, 200, {
+      reply,
+      traceId,
+      conversationId: conversation.conversation_id,
+      conversationTitle: conversation.title,
+    });
     return;
   }
 
