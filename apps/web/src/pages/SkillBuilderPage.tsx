@@ -18,8 +18,6 @@ import { listNodes, type NodeDto } from "@/lib/nodesClient";
 import { listDepartments, listRoles, type DepartmentOption, type RoleOption } from "@/lib/referenceClient";
 import { createSkill, deleteSkill, listSkills, updateSkill, type SkillSummaryDto } from "@/lib/skillsClient";
 
-const SYSTEM_OPTION = "retrieve_documents";
-
 export function SkillBuilderPage() {
   const { accessToken, authLoading } = useAuth();
   const [nodes, setNodes] = useState<NodeDto[]>([]);
@@ -38,10 +36,7 @@ export function SkillBuilderPage() {
   const [allowRoleSlugs, setAllowRoleSlugs] = useState<("member" | "admin")[]>([]);
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
 
-  const options = useMemo(() => {
-    const custom = nodes.map((n) => n.name);
-    return [SYSTEM_OPTION, ...custom];
-  }, [nodes]);
+  const options = useMemo(() => nodes.map((n) => n.name), [nodes]);
 
   const refresh = useCallback(async () => {
     if (!accessToken) {
@@ -218,10 +213,8 @@ export function SkillBuilderPage() {
         <div>
           <h1 className="font-heading text-2xl font-semibold tracking-tight text-foreground">Skill builder</h1>
           <p className="text-sm text-muted-foreground">
-            Compose an ordered list of nodes (max 10). With the document pipeline enabled, chat runs retrieval
-            automatically before these steps; you may still add{" "}
-            <code className="rounded bg-muted px-1 text-xs">retrieve_documents</code> for clarity (it will not run
-            twice).
+            Compose an ordered list of nodes (max 10). With the document pipeline enabled, chat runs document
+            retrieval automatically once before these steps (it is not listed here).
           </p>
         </div>
 
@@ -245,7 +238,7 @@ export function SkillBuilderPage() {
             <CardHeader>
               <CardTitle>{editingSkillId ? "Edit skill" : "New skill"}</CardTitle>
               <CardDescription>
-                {loadError ?? `${options.length - 1} custom nodes available`}
+                {loadError ?? `${options.length} custom nodes available`}
                 {refError ? ` · ${refError}` : ""}
               </CardDescription>
             </CardHeader>
