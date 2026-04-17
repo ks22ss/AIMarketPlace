@@ -253,7 +253,35 @@ async function handleApiRoute(route: Route, request: Request, state: MockState):
       });
       return;
     }
-    await json(route, 200, state.marketplace);
+
+    let rows = [...state.marketplace.skills];
+    if (url.searchParams.get("accessible_only") === "true") {
+      rows = rows.filter((s) => s.accessible);
+    }
+    const q = url.searchParams.get("q")?.trim().toLowerCase() ?? "";
+    if (q) {
+      rows = rows.filter((s) => {
+        if (s.skill_id.toLowerCase().includes(q)) {
+          return true;
+        }
+        if (s.accessible) {
+          return (s.name ?? "").toLowerCase().includes(q) || (s.description ?? "").toLowerCase().includes(q);
+        }
+        return (s.access_summary ?? "").toLowerCase().includes(q);
+      });
+    }
+    if (url.searchParams.get("sort") === "accessible_first") {
+      rows.sort((a, b) => (a.accessible === b.accessible ? 0 : a.accessible ? -1 : 1));
+    }
+
+    const page = Math.max(1, Number.parseInt(url.searchParams.get("page") ?? "1", 10) || 1);
+    const limit = Math.min(32, Math.max(1, Number.parseInt(url.searchParams.get("limit") ?? "16", 10) || 16));
+    const total = rows.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const safePage = Math.min(page, totalPages);
+    const skip = (safePage - 1) * limit;
+    const skills = rows.slice(skip, skip + limit);
+    await json(route, 200, { skills, page: safePage, limit, total });
     return;
   }
 

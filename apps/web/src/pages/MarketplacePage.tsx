@@ -25,13 +25,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   installSkill,
   listMarketplaceSkills,
   type MarketplaceSkillSummaryDto,
   uninstallSkill,
 } from "@/lib/marketplaceClient";
-import { PLAN_MAX_SKILLS } from "@/lib/planLimits";
 import { cn } from "@/lib/utils";
 
 const PAGE_LIMIT = 16;
@@ -67,6 +68,10 @@ export function MarketplacePage() {
   const [installedSkills, setInstalledSkills] = useState<MarketplaceSkillSummaryDto[]>([]);
   const [installedLoading, setInstalledLoading] = useState(false);
   const [installedError, setInstalledError] = useState<string | null>(null);
+  const [catalogAccessibility, setCatalogAccessibility] = useState<"all" | "accessible_only">("all");
+  const [catalogSort, setCatalogSort] = useState<"default" | "accessible_first">("default");
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
   const refreshInstalled = useCallback(async () => {
     if (!accessToken) {
@@ -94,6 +99,15 @@ export function MarketplacePage() {
     void refreshInstalled();
   }, [refreshInstalled]);
 
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedSearch(searchInput.trim()), 300);
+    return () => window.clearTimeout(id);
+  }, [searchInput]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch]);
+
   const refresh = useCallback(async () => {
     if (!accessToken) {
       setSkills([]);
@@ -103,7 +117,13 @@ export function MarketplacePage() {
     setListLoading(true);
     setListError(null);
     try {
-      const result = await listMarketplaceSkills(accessToken, { page, limit: PAGE_LIMIT });
+      const result = await listMarketplaceSkills(accessToken, {
+        page,
+        limit: PAGE_LIMIT,
+        accessible_only: catalogAccessibility === "accessible_only",
+        sort: catalogSort,
+        q: debouncedSearch || undefined,
+      });
       const totalPages = Math.max(1, Math.ceil(result.total / result.limit));
       if (result.page > totalPages) {
         setPage(totalPages);
@@ -119,7 +139,7 @@ export function MarketplacePage() {
     } finally {
       setListLoading(false);
     }
-  }, [accessToken, page]);
+  }, [accessToken, page, catalogAccessibility, catalogSort, debouncedSearch]);
 
   useEffect(() => {
     void refresh();
@@ -191,10 +211,6 @@ export function MarketplacePage() {
 
       {!authLoading && accessToken ? (
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">
-          <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-            Your current plan includes up to <strong className="text-foreground">{PLAN_MAX_SKILLS}</strong> skills.
-          </div>
-
           {listError ? (
             <p className="text-sm text-destructive" role="alert">
               {listError}
@@ -256,6 +272,67 @@ export function MarketplacePage() {
               ) : null}
             </CardContent>
           </Card>
+
+          <div
+            className="flex flex-col gap-4 rounded-lg border border-border bg-muted/20 p-4"
+            aria-label="Catalog filters"
+          >
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Skill catalog</p>
+            <div className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end">
+              <div className="flex min-w-[12rem] flex-col gap-1.5">
+                <Label htmlFor="catalog-visibility" className="text-xs text-muted-foreground">
+                  Show
+                </Label>
+                <select
+                  id="catalog-visibility"
+                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  value={catalogAccessibility}
+                  disabled={listLoading}
+                  onChange={(e) => {
+                    setCatalogAccessibility(e.target.value === "accessible_only" ? "accessible_only" : "all");
+                    setPage(1);
+                  }}
+                >
+                  <option value="all">All skills</option>
+                  <option value="accessible_only">Not restricted only</option>
+                </select>
+              </div>
+              <div className="flex min-w-[12rem] flex-col gap-1.5">
+                <Label htmlFor="catalog-sort" className="text-xs text-muted-foreground">
+                  Sort
+                </Label>
+                <select
+                  id="catalog-sort"
+                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  value={catalogSort}
+                  disabled={listLoading}
+                  onChange={(e) => {
+                    setCatalogSort(e.target.value === "accessible_first" ? "accessible_first" : "default");
+                    setPage(1);
+                  }}
+                >
+                  <option value="default">Newest first</option>
+                  <option value="accessible_first">Accessible (not restricted) first</option>
+                </select>
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5 lg:min-w-[16rem]">
+                <Label htmlFor="catalog-search" className="text-xs text-muted-foreground">
+                  Search skills
+                </Label>
+                <Input
+                  id="catalog-search"
+                  type="search"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  autoComplete="off"
+                  placeholder="Name, description, or skill id…"
+                  value={searchInput}
+                  disabled={listLoading}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
 
           {listLoading ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
