@@ -242,6 +242,9 @@ export function ChatPage() {
     [skills, selectedSkillId],
   );
 
+  /** Native `<select>` lists from the bottom up on many platforms; reverse so the visual order matches API order. */
+  const skillsForSelectDescending = useMemo(() => [...skills].reverse(), [skills]);
+
   const hideSkillPicker = Boolean(urlSkillId && skills.some((s) => s.skill_id === urlSkillId));
 
   useEffect(() => {
@@ -553,7 +556,7 @@ export function ChatPage() {
                     disabled={sending}
                   >
                     <option value="">Default chat (model + retrieval only)</option>
-                    {skills.map((s) => (
+                    {skillsForSelectDescending.map((s) => (
                       <option key={s.skill_id} value={s.skill_id}>
                         {s.name}
                         {s.nodes.length > 0 ? ` (${s.nodes.join(" -> ")})` : ""}

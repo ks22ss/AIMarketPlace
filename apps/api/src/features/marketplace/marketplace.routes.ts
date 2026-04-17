@@ -5,7 +5,11 @@ import type { MarketplaceSkillsListResponse, MarketplaceSkillSummaryDto } from "
 import { accessSummaryForSkill } from "../../lib/access-summary.js";
 import { asyncHandler } from "../../lib/async-handler.js";
 import { requireAuth } from "../auth/auth.middleware.js";
-import { findOrgSkillsWithAccessForUser, parseStoredSkillNodes } from "../skills/skill-queries.js";
+import {
+  findOrgSkillsWithAccessForUser,
+  parseStoredSkillNodes,
+  type SkillWithAccess,
+} from "../skills/skill-queries.js";
 
 const DEFAULT_LIMIT = 16;
 const MAX_LIMIT = 32;
@@ -15,6 +19,59 @@ const MAX_LIMIT_INSTALLED_ONLY = 100;
 function installedOnlyFromQuery(query: Request["query"]): boolean {
   const raw = query.installed_only;
   return raw === "true" || raw === "1" || raw === "yes";
+}
+
+function accessibleOnlyFromQuery(query: Request["query"]): boolean {
+  const raw = query.accessible_only;
+  return raw === "true" || raw === "1" || raw === "yes";
+}
+
+function sortModeFromQuery(query: Request["query"]): "default" | "accessible_first" {
+  const raw = query.sort;
+  return raw === "accessible_first" ? "accessible_first" : "default";
+}
+
+function searchQueryFromQuery(query: Request["query"]): string {
+  const raw = query.q;
+  return typeof raw === "string" ? raw : "";
+}
+
+/** Search without leaking locked skill names: only match public fields for inaccessible rows. */
+function marketplaceRowMatchesSearch(row: SkillWithAccess, qRaw: string): boolean {
+  const q = qRaw.trim().toLowerCase();
+  if (!q) {
+    return true;
+  }
+  const { skill, accessible } = row;
+  if (skill.skillId.toLowerCase().includes(q)) {
+    return true;
+  }
+  if (accessible) {
+    if (skill.name.toLowerCase().includes(q)) {
+      return true;
+    }
+    if ((skill.description ?? "").toLowerCase().includes(q)) {
+      return true;
+    }
+    return false;
+  }
+  const summary = accessSummaryForSkill(skill.allowRole, skill.allowDepartment).toLowerCase();
+  return summary.includes(q);
+}
+
+function orderMarketplaceCandidates(
+  rows: SkillWithAccess[],
+  sort: "default" | "accessible_first",
+): SkillWithAccess[] {
+  if (sort !== "accessible_first") {
+    return rows;
+  }
+  return [...rows].sort((a, b) => {
+    if (a.accessible !== b.accessible) {
+      return a.accessible ? -1 : 1;
+    }
+    return b.skill.createdAt.getTime() - a.skill.createdAt.getTime();
+  });
 }
 
 export function createMarketplaceRouter(prisma: PrismaClient): Router {
@@ -58,10 +115,22 @@ export function createMarketplaceRouter(prisma: PrismaClient): Router {
         candidates = candidates.filter(
           (row) => row.accessible && installedSet.has(row.skill.skillId),
         );
+      } else {
+        if (accessibleOnlyFromQuery(request.query)) {
+          candidates = candidates.filter((row) => row.accessible);
+        }
+        const searchQ = searchQueryFromQuery(request.query);
+        if (searchQ.trim()) {
+          candidates = candidates.filter((row) => marketplaceRowMatchesSearch(row, searchQ));
+        }
+        const sortMode = sortModeFromQuery(request.query);
+        candidates = orderMarketplaceCandidates(candidates, sortMode);
       }
 
       const total = candidates.length;
-      const skip = (page - 1) * limit;
+      const totalPages = Math.max(1, Math.ceil(total / limit));
+      const safePage = Math.min(page, totalPages);
+      const skip = (safePage - 1) * limit;
       const pageRows = candidates.slice(skip, skip + limit);
 
       const skills: MarketplaceSkillSummaryDto[] = pageRows.map(({ skill: s, accessible }) => {
@@ -97,7 +166,7 @@ export function createMarketplaceRouter(prisma: PrismaClient): Router {
 
       const payload: MarketplaceSkillsListResponse = {
         skills,
-        page,
+        page: safePage,
         limit,
         total,
       };
