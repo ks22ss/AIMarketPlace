@@ -242,10 +242,54 @@ export function ChatPage() {
     [skills, selectedSkillId],
   );
 
-  /** Native `<select>` lists from the bottom up on many platforms; reverse so the visual order matches API order. */
+  /** Order shown in the skill picker list (newer entries end up closer to the trigger when the menu opens upward). */
   const skillsForSelectDescending = useMemo(() => [...skills].reverse(), [skills]);
 
   const hideSkillPicker = Boolean(urlSkillId && skills.some((s) => s.skill_id === urlSkillId));
+
+  const [skillMenuOpen, setSkillMenuOpen] = useState(false);
+  const skillPickerRef = useRef<HTMLDivElement>(null);
+
+  const selectedSkillButtonLabel = useMemo(() => {
+    if (!selectedSkillId) {
+      return "Default chat (model + retrieval only)";
+    }
+    const s = skills.find((x) => x.skill_id === selectedSkillId);
+    if (!s) {
+      return "Skill";
+    }
+    const suffix = s.nodes.length > 0 ? ` (${s.nodes.join(" -> ")})` : "";
+    return `${s.name}${suffix}`;
+  }, [selectedSkillId, skills]);
+
+  useEffect(() => {
+    if (!skillMenuOpen) {
+      return;
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      const el = skillPickerRef.current;
+      if (el && !el.contains(event.target as Node)) {
+        setSkillMenuOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSkillMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [skillMenuOpen]);
+
+  useEffect(() => {
+    if (sending) {
+      setSkillMenuOpen(false);
+    }
+  }, [sending]);
 
   useEffect(() => {
     listEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -548,21 +592,82 @@ export function ChatPage() {
                   <Label htmlFor="skill-pick" className="text-xs font-medium text-muted-foreground">
                     Skill
                   </Label>
-                  <select
-                    id="skill-pick"
-                    className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                    value={selectedSkillId}
-                    onChange={(e) => setSelectedSkillId(e.target.value)}
-                    disabled={sending}
-                  >
-                    <option value="">Default chat (model + retrieval only)</option>
-                    {skillsForSelectDescending.map((s) => (
-                      <option key={s.skill_id} value={s.skill_id}>
-                        {s.name}
-                        {s.nodes.length > 0 ? ` (${s.nodes.join(" -> ")})` : ""}
-                      </option>
-                    ))}
-                  </select>
+                  <div ref={skillPickerRef} className="relative">
+                    <button
+                      type="button"
+                      id="skill-pick"
+                      disabled={sending}
+                      aria-expanded={skillMenuOpen}
+                      aria-haspopup="listbox"
+                      onClick={() => {
+                        if (!sending) {
+                          setSkillMenuOpen((open) => !open);
+                        }
+                      }}
+                      className={cn(
+                        "flex h-9 min-w-[220px] max-w-[min(100vw-3rem,28rem)] items-center justify-between gap-2 rounded-md border border-input bg-background px-2 text-left text-sm text-foreground outline-none",
+                        "hover:bg-muted/40 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+                        "disabled:cursor-not-allowed disabled:opacity-50",
+                      )}
+                    >
+                      <span className="min-w-0 flex-1 truncate">{selectedSkillButtonLabel}</span>
+                      <ChevronDown
+                        className={cn(
+                          "size-4 shrink-0 opacity-60 transition-transform",
+                          skillMenuOpen && "rotate-180",
+                        )}
+                        aria-hidden
+                      />
+                    </button>
+                    {skillMenuOpen ? (
+                      <ul
+                        role="listbox"
+                        aria-labelledby="skill-pick"
+                        className="absolute bottom-full left-0 z-50 mb-1 max-h-60 min-w-full list-none overflow-y-auto rounded-md border border-border bg-popover py-1 text-popover-foreground shadow-md"
+                      >
+                        <li role="presentation">
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={selectedSkillId === ""}
+                            className={cn(
+                              "flex w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground",
+                              selectedSkillId === "" && "bg-accent/40",
+                            )}
+                            onClick={() => {
+                              setSelectedSkillId("");
+                              setSkillMenuOpen(false);
+                            }}
+                          >
+                            Default chat (model + retrieval only)
+                          </button>
+                        </li>
+                        {skillsForSelectDescending.map((s) => {
+                          const label = `${s.name}${s.nodes.length > 0 ? ` (${s.nodes.join(" -> ")})` : ""}`;
+                          const selected = selectedSkillId === s.skill_id;
+                          return (
+                            <li key={s.skill_id} role="presentation">
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={selected}
+                                className={cn(
+                                  "flex w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground",
+                                  selected && "bg-accent/40",
+                                )}
+                                onClick={() => {
+                                  setSelectedSkillId(s.skill_id);
+                                  setSkillMenuOpen(false);
+                                }}
+                              >
+                                {label}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : null}
+                  </div>
                 </>
               )}
               {skillsError ? (
