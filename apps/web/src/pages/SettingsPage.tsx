@@ -80,7 +80,7 @@ export function SettingsPage() {
                 <IdCardIcon className="size-5 opacity-80" aria-hidden />
                 Profile
               </CardTitle>
-              <CardDescription>Role, department, and identifiers for access control in the app.</CardDescription>
+              <CardDescription>Role, department, and organization for your account.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               <ProfileRow icon={MailIcon} label="Email" value={user.email} />
@@ -89,11 +89,7 @@ export function SettingsPage() {
                 label="Role"
                 value={`${humanizeSlug(user.role)} (${user.role})`}
               />
-              <ProfileRow
-                icon={Building2Icon}
-                label="Department"
-                value={`${user.department} · ID ${user.departmentId}`}
-              />
+              <ProfileRow icon={Building2Icon} label="Department" value={user.department} />
               <ProfileRow
                 icon={BriefcaseIcon}
                 label="Organization"
@@ -101,12 +97,6 @@ export function SettingsPage() {
                 valueClassName={user.orgId ? "font-mono text-xs sm:text-sm" : undefined}
               />
               <ProfileRow icon={CalendarIcon} label="Account created" value={formatJoinedAt(user.createdAt)} />
-              <ProfileRow
-                icon={IdCardIcon}
-                label="User ID"
-                value={user.userId}
-                valueClassName="font-mono text-xs sm:text-sm"
-              />
             </CardContent>
           </Card>
         ) : null}
