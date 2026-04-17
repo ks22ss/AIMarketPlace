@@ -217,14 +217,14 @@ export function MarketplacePage() {
             </p>
           ) : null}
 
-          <Card>
+          <Card className="min-h-0">
             <CardHeader>
               <CardTitle className="text-lg">Your installed skills</CardTitle>
               <CardDescription>
                 Start Chat from a row to open the conversation with that skill already selected.
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-col gap-2">
+            <CardContent className="flex min-h-0 flex-col gap-2">
               {installedLoading ? (
                 <p className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2Icon className="size-4 animate-spin" aria-hidden />
@@ -242,33 +242,39 @@ export function MarketplacePage() {
                 </p>
               ) : null}
               {!installedLoading && installedSkills.length > 0 ? (
-                <ul className="divide-y divide-border rounded-lg border border-border">
-                  {installedSkills.map((skill) => (
-                    <li
-                      key={skill.skill_id}
-                      className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0 flex flex-col gap-0.5">
-                        <span className="text-sm font-medium text-foreground">{skill.name ?? "Skill"}</span>
-                        {skill.description?.trim() ? (
-                          <span className="line-clamp-2 text-xs text-muted-foreground">{skill.description}</span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">No description</span>
-                        )}
-                        <span className="text-xs text-muted-foreground">{skill.access_summary}</span>
-                      </div>
-                      <Button asChild className="shrink-0 sm:w-auto" variant="secondary">
-                        <Link
-                          to={`/?skill_id=${encodeURIComponent(skill.skill_id)}`}
-                          className="inline-flex items-center gap-2"
-                        >
-                          <MessageSquareIcon className="size-4 shrink-0" aria-hidden />
-                          Start Chat
-                        </Link>
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
+                <div
+                  className="max-h-[min(50vh,22rem)] min-h-0 overflow-y-auto overscroll-contain rounded-lg border border-border"
+                  role="region"
+                  aria-label="Installed skills list"
+                >
+                  <ul className="divide-y divide-border">
+                    {installedSkills.map((skill) => (
+                      <li
+                        key={skill.skill_id}
+                        className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0 flex flex-col gap-0.5">
+                          <span className="text-sm font-medium text-foreground">{skill.name ?? "Skill"}</span>
+                          {skill.description?.trim() ? (
+                            <span className="line-clamp-2 text-xs text-muted-foreground">{skill.description}</span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No description</span>
+                          )}
+                          <span className="text-xs text-muted-foreground">{skill.access_summary}</span>
+                        </div>
+                        <Button asChild className="shrink-0 sm:w-auto" variant="secondary">
+                          <Link
+                            to={`/?skill_id=${encodeURIComponent(skill.skill_id)}`}
+                            className="inline-flex items-center gap-2"
+                          >
+                            <MessageSquareIcon className="size-4 shrink-0" aria-hidden />
+                            Start Chat
+                          </Link>
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ) : null}
             </CardContent>
           </Card>
