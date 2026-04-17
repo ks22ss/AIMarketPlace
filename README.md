@@ -107,6 +107,41 @@ docs/marketplace.md      # Marketplace list + install paths
 docs/document.md         # Document upload → ingest write path
 ```
 
+## Knowledge graph (Graphify) for agent workflows
+
+This repo can maintain an optional **[Graphify](https://github.com/safishamsi/graphify)** knowledge graph under **`graphify-out/`** so coding agents (Cursor, Claude Code, etc.) get a durable map of modules, docs, and cross-links instead of re-grepping the tree every session. Typical artifacts:
+
+| File | Purpose |
+|------|---------|
+| **`graphify-out/graph.json`** | GraphRAG-style node/link data agents can query |
+| **`graphify-out/GRAPH_REPORT.md`** | Human-readable audit: communities, “god” hubs, suggested questions |
+| **`graphify-out/graph.html`** | Interactive graph in a browser |
+
+**Install (local tooling):** Python 3.x plus the Graphify package from the upstream project (see that repo for the current PyPI install name and version).
+
+**Update `graph.json` manually**
+
+- **Code-only refresh (fast, no LLM):** from the repository root, with an existing graph already in `graphify-out/`:
+  ```bash
+  python -m graphify update .
+  ```
+  Re-runs AST extraction on changed code paths, rebuilds **`graphify-out/graph.json`** and **`GRAPH_REPORT.md`**, and prints a short summary. After doc or image changes, Graphify’s full pipeline (below) is still needed for semantic layers.
+- **Re-cluster only:** keeps the current extraction and recomputes communities:
+  ```bash
+  python -m graphify cluster-only .
+  ```
+- **Full rebuild (code + docs + semantic extraction):** run the Graphify skill workflow (e.g. **`/graphify .`** in Cursor if that skill is installed) so chunks, merge, HTML, and report all regenerate.
+
+**Update automatically**
+
+- **Git post-commit hook** (rebuilds after each commit for tracked code changes):
+  ```bash
+  python -m graphify hook install
+  ```
+  Check status with `python -m graphify hook status`; remove with `python -m graphify hook uninstall`.
+
+Treat **`graphify-out/`** as generated tooling output unless your team decides to version it.
+
 ## CI
 
 On push/PR to `master`: install, build workspaces, **Vitest** (`@aimarketplace/api`), **Playwright** E2E. No Promptfoo/RAGAS jobs in the workflow file.
