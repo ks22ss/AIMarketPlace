@@ -10,6 +10,7 @@ import { DocsRagPage } from "@/pages/DocsRagPage";
 import { MarketplacePage } from "@/pages/MarketplacePage";
 import { NodeBuilderPage } from "@/pages/NodeBuilderPage";
 import { SkillBuilderPage } from "@/pages/SkillBuilderPage";
+import { SettingsPage } from "@/pages/SettingsPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { RegisterPage } from "@/pages/RegisterPage";
 import "./index.css";
@@ -32,6 +33,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="/skills" element={<SkillBuilderPage />} />
               <Route path="/documents" element={<DocsRagPage />} />
               <Route path="/marketplace" element={<MarketplacePage />} />
+              <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/login" replace />} />
