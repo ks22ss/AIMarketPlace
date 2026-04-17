@@ -1,4 +1,4 @@
-# AI Marketplace Platform - Place to share skills between departments in organization
+# AI Marketplace Platform - Place to share skills within departments in organization
 
 Monorepo for an internal-style **AI marketplace**: JWT auth, org-scoped **prompt nodes** and **skills** (ordered workflows), **marketplace** listing, **document upload + RAG** (S3/MinIO, Weaviate, embeddings), and **chat** that runs installed skills.
 
