@@ -6,6 +6,7 @@ import {
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
+  Settings,
   ShoppingBag,
   Wand2,
 } from "lucide-react";
@@ -30,6 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/skills", label: "Skills", icon: Wand2 },
   { to: "/documents", label: "Documents", icon: FileText },
   { to: "/marketplace", label: "Marketplace", icon: ShoppingBag },
+  { to: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function AppLayout() {
